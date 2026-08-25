@@ -19,8 +19,6 @@
 微信小程序 ────────────┘
 ```
 
-CloudBase 环境 ID：`bun-order-d9gn0mjn09021bfbe`
-
 ## 项目结构
 
 ```text
