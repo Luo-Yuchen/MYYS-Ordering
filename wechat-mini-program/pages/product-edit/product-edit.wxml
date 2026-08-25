@@ -1,0 +1,60 @@
+<view class="page-shell editor-shell">
+  <view class="editor-header">
+    <view class="editor-eyebrow">商品管理</view>
+    <view class="section-title">{{pageTitle}}</view>
+    <view class="section-description">图片和商品信息只保存在当前小程序设备。</view>
+  </view>
+
+  <view class="editor-card card">
+    <view class="image-uploader" bindtap="chooseImage">
+      <image wx:if="{{imagePath}}" src="{{imagePath}}" mode="aspectFill" />
+      <view wx:else class="upload-placeholder">
+        <view class="upload-mark">图</view>
+        <view class="serif upload-title">选择商品图片</view>
+        <view class="upload-note">相册或相机 · 自动保存到本机</view>
+      </view>
+      <view wx:if="{{isProcessingImage}}" class="upload-loading">正在处理图片…</view>
+    </view>
+    <button wx:if="{{imagePath}}" class="remove-image" bindtap="removeImage">移除图片，使用默认插画</button>
+
+    <view class="form-field">
+      <text class="field-label">商品名称</text>
+      <input class="field-input" value="{{name}}" maxlength="24" placeholder="例如：红枣馒头" data-field="name" bindinput="updateField" />
+    </view>
+    <view class="form-field">
+      <text class="field-label">商品描述</text>
+      <textarea class="field-textarea short-textarea" value="{{description}}" maxlength="60" placeholder="写一句口味和原料介绍" data-field="description" bindinput="updateField" />
+    </view>
+    <view class="two-column">
+      <view class="form-field">
+        <text class="field-label">价格（元）</text>
+        <input class="field-input" value="{{price}}" type="digit" placeholder="3.5" data-field="price" bindinput="updateField" />
+      </view>
+      <view class="form-field">
+        <text class="field-label">计价单位</text>
+        <input class="field-input" value="{{unit}}" maxlength="6" placeholder="个" data-field="unit" bindinput="updateField" />
+      </view>
+    </view>
+    <view class="two-column">
+      <view class="form-field">
+        <text class="field-label">商品分类</text>
+        <picker mode="selector" range="{{categories}}" value="{{categoryIndex}}" bindchange="changeCategory">
+          <view class="field-picker">{{categories[categoryIndex]}}</view>
+        </picker>
+      </view>
+      <view class="form-field">
+        <text class="field-label">今日库存</text>
+        <input class="field-input" value="{{stock}}" type="number" placeholder="20" data-field="stock" bindinput="updateField" />
+      </view>
+    </view>
+    <view class="form-field">
+      <text class="field-label">角标（可选）</text>
+      <input class="field-input" value="{{badge}}" maxlength="8" placeholder="例如：新品、招牌" data-field="badge" bindinput="updateField" />
+    </view>
+    <view class="availability-row">
+      <view><view class="availability-title">保存后立即上架</view><view class="availability-note">关闭后商品保留在后台，顾客端不展示。</view></view>
+      <switch color="#59694d" checked="{{available}}" bindchange="changeAvailability" />
+    </view>
+    <button class="primary-button save-button" bindtap="saveProduct">保存商品</button>
+  </view>
+</view>

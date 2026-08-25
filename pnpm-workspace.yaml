@@ -1,0 +1,7 @@
+allowBuilds:
+  core-js-pure: false
+  esbuild: true
+  sharp: true
+  workerd: true
+minimumReleaseAgeExclude:
+  - '@cloudbase/js-sdk@3.8.2'

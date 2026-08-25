@@ -1,0 +1,193 @@
+<view class="page-shell admin-shell">
+  <view class="admin-topbar">
+    <view>
+      <view class="admin-eyebrow">馒有意思 · 本地体验后台</view>
+      <view class="admin-title serif">商家接单台</view>
+    </view>
+    <button class="secondary-button customer-button" bindtap="returnCustomer">返回顾客端</button>
+  </view>
+
+  <view class="admin-content">
+    <view class="metrics-grid">
+      <view class="metric-card"><text>今日订单</text><strong class="serif">{{orderCount}}</strong></view>
+      <view class="metric-card"><text>待处理</text><strong class="serif">{{pendingCount}}</strong></view>
+      <view class="metric-card"><text>销售额</text><strong class="serif metric-money">{{revenueText}}</strong></view>
+      <view class="metric-card"><text>在售商品</text><strong class="serif">{{availableCount}}</strong></view>
+    </view>
+
+    <scroll-view class="admin-tabs" scroll-x enable-flex>
+      <button class="admin-tab {{activeView === 'orders' ? 'admin-tab-active' : ''}}" data-view="orders" bindtap="setActiveView">订单</button>
+      <button class="admin-tab {{activeView === 'production' ? 'admin-tab-active' : ''}}" data-view="production" bindtap="setActiveView">备货</button>
+      <button class="admin-tab {{activeView === 'products' ? 'admin-tab-active' : ''}}" data-view="products" bindtap="setActiveView">商品</button>
+      <button class="admin-tab {{activeView === 'payments' ? 'admin-tab-active' : ''}}" data-view="payments" bindtap="setActiveView">收款设置</button>
+      <button class="admin-tab {{activeView === 'store' ? 'admin-tab-active' : ''}}" data-view="store" bindtap="setActiveView">店铺装修</button>
+    </scroll-view>
+
+    <block wx:if="{{activeView === 'orders'}}">
+      <view class="section-heading">
+        <view><view class="section-title">今日订单</view><view class="section-description">顾客端提交后会立即出现在这里。</view></view>
+      </view>
+      <view wx:if="{{orders.length === 0}}" class="empty-state card">
+        <view class="empty-mark">单</view><view class="serif empty-title">等待第一笔订单</view>
+        <view class="section-description">返回顾客端提交预约，即可体验接单。</view>
+      </view>
+      <view wx:else class="admin-list">
+        <view wx:for="{{orders}}" wx:key="id" class="admin-order card">
+          <view class="order-heading">
+            <view>
+              <view class="serif order-customer">{{item.shortCode}}【{{item.fulfillmentText}}】 · {{item.customerName}}</view>
+              <view class="order-meta">#{{item.id}} · {{item.createdAtText}} · {{item.phone}}</view>
+              <view wx:if="{{item.paymentMethodName}}" class="order-meta">收款方式：{{item.paymentMethodName}}</view>
+            </view>
+            <view><view class="serif order-total">应付 {{item.totalText}}</view><view class="order-meta">商品 {{item.subtotalText}} · 配送费 {{item.deliveryFeeText}}</view></view>
+          </view>
+          <view class="order-divider" />
+          <view class="order-summary">{{item.itemSummary}}</view>
+          <view wx:if="{{item.deliveryAddressText}}" class="customer-info">地址：{{item.deliveryAddressText}}</view>
+          <view class="appointment">{{item.appointmentText}}<text wx:if="{{item.note}}"> · {{item.note}}</text></view>
+          <view class="status-row">
+            <text class="status-caption">制作状态</text>
+            <picker mode="selector" range="{{statusLabels}}" value="{{item.statusIndex}}" data-id="{{item.id}}" bindchange="changeOrderStatus">
+              <view class="status-picker status-{{item.status}}">{{item.statusText}} ▾</view>
+            </picker>
+          </view>
+          <view class="status-row">
+            <text class="status-caption">付款状态</text>
+            <text class="status-picker status-{{item.paymentStatus}}">{{item.paymentStatusText}}</text>
+          </view>
+          <view wx:if="{{item.canReviewPayment}}" class="payment-review-actions">
+            <button class="secondary-button compact-button" data-id="{{item.id}}" data-status="rejected" bindtap="updatePaymentStatus">核验未通过</button>
+            <button class="primary-button compact-button" data-id="{{item.id}}" data-status="confirmed" bindtap="updatePaymentStatus">确认已收款</button>
+          </view>
+          <view wx:if="{{item.fulfillment === 'delivery'}}" class="status-row">
+            <text class="status-caption">配送进度</text>
+            <picker mode="selector" range="{{deliveryStatusLabels}}" value="{{item.deliveryStatusIndex}}" data-id="{{item.id}}" bindchange="changeDeliveryStatus">
+              <view class="status-picker status-{{item.deliveryStatus}}">{{item.deliveryStatusText}} ▾</view>
+            </picker>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <block wx:elif="{{activeView === 'production'}}">
+      <view class="section-title">今日备货</view>
+      <view class="section-description">汇总所有未完成订单，方便安排蒸制数量。</view>
+      <view wx:if="{{productionItems.length === 0}}" class="empty-state card">
+        <view class="empty-mark">笼</view><view class="serif empty-title">暂无待制作商品</view>
+      </view>
+      <view wx:else class="production-grid">
+        <view wx:for="{{productionItems}}" wx:key="productId" class="production-card card">
+          <view class="production-index serif">{{index + 1}}</view>
+          <view class="production-name serif">{{item.name}}</view>
+          <view class="production-quantity">待制作 <strong>{{item.quantity}}</strong> {{item.unit}}</view>
+        </view>
+      </view>
+    </block>
+
+    <block wx:elif="{{activeView === 'products'}}">
+      <view class="section-heading">
+        <view><view class="section-title">商品管理</view><view class="section-description">修改内容、库存和上下架状态。</view></view>
+        <button class="primary-button compact-button" bindtap="addProduct">新增商品</button>
+      </view>
+      <view class="admin-list">
+        <view wx:for="{{products}}" wx:key="id" class="admin-product card">
+          <view class="admin-product-visual">
+            <image wx:if="{{item.imagePath}}" src="{{item.imagePath}}" mode="aspectFill" />
+            <view wx:else class="bun mini-bun {{item.toneClass}}" />
+          </view>
+          <view class="admin-product-info">
+            <view class="serif admin-product-name">{{item.name}}</view>
+            <view class="admin-product-meta">{{item.priceText}} / {{item.unit}} · 库存 {{item.stock}}</view>
+            <button class="edit-link" data-id="{{item.id}}" bindtap="editProduct">编辑商品信息</button>
+          </view>
+          <view class="availability">
+            <switch color="#59694d" checked="{{item.available}}" data-id="{{item.id}}" bindchange="toggleProductAvailability" />
+            <text>{{item.available ? '在售' : '已下架'}}</text>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <block wx:elif="{{activeView === 'payments'}}">
+      <view class="section-heading">
+        <view><view class="section-title">收款设置</view><view class="section-description">管理多个个人收款码，并同步给网页版和小程序顾客端。</view></view>
+        <button class="primary-button compact-button" bindtap="addPaymentMethod">新增收款码</button>
+      </view>
+
+      <view class="admin-order card">
+        <view class="form-field">
+          <view class="field-label">商家管理口令</view>
+          <input class="field-input" password value="{{adminKey}}" bindinput="updateAdminKey" placeholder="用于读取和同步云端收款设置" />
+        </view>
+        <view class="section-heading">
+          <button class="secondary-button compact-button" loading="{{isSyncingPayments}}" bindtap="loadCloudPaymentMethods">读取云端设置</button>
+          <button class="primary-button compact-button" loading="{{isSyncingPayments}}" bindtap="syncPaymentMethods">同步全部设置</button>
+        </view>
+        <view wx:if="{{paymentMessage}}" class="section-description">{{paymentMessage}}</view>
+      </view>
+
+      <view wx:if="{{isPaymentEditorOpen}}" class="admin-order card">
+        <view class="serif order-customer">{{editingPaymentMethodId ? '编辑收款码' : '新增收款码'}}</view>
+        <view class="form-field">
+          <view class="field-label">收款码名称</view>
+          <input class="field-input" value="{{paymentDraft.name}}" data-field="name" bindinput="updatePaymentDraftField" placeholder="例如：微信收款码" />
+        </view>
+        <view class="form-field">
+          <view class="field-label">收款人名称</view>
+          <input class="field-input" value="{{paymentDraft.payeeName}}" data-field="payeeName" bindinput="updatePaymentDraftField" placeholder="例如：王女士" />
+        </view>
+        <view class="form-field">
+          <view class="field-label">二维码 HTTPS 图片地址</view>
+          <input class="field-input" value="{{paymentDraft.qrCodeUrl}}" data-field="qrCodeUrl" bindinput="updatePaymentDraftField" placeholder="https://example.com/payment-qr.png" />
+        </view>
+        <view class="form-field">
+          <view class="field-label">付款说明与备注</view>
+          <textarea class="field-textarea" value="{{paymentDraft.note}}" data-field="note" bindinput="updatePaymentDraftField" placeholder="付款时请备注订单号，仅用于本店订单收款" />
+        </view>
+        <view class="status-row">
+          <text class="status-caption">向顾客启用</text>
+          <switch color="#59694d" checked="{{paymentDraft.enabled}}" bindchange="togglePaymentDraftEnabled" />
+        </view>
+        <button class="primary-button" bindtap="savePaymentDraft">保存到本机列表</button>
+      </view>
+
+      <view wx:if="{{paymentMethods.length === 0}}" class="empty-state card">
+        <view class="empty-mark">码</view><view class="serif empty-title">还没有收款码</view>
+        <view class="section-description">新增后先保存到本机，再用管理口令同步到云端。</view>
+      </view>
+      <view wx:else class="admin-list">
+        <view wx:for="{{paymentMethods}}" wx:key="id" class="admin-product card">
+          <view class="admin-product-visual">
+            <image src="{{item.qrCodeUrl}}" mode="aspectFit" />
+          </view>
+          <view class="admin-product-info">
+            <view class="serif admin-product-name">{{item.name}}</view>
+            <view class="admin-product-meta">{{item.payeeName}} · {{item.enabled ? '顾客可见' : '已停用'}}</view>
+            <view class="section-description">{{item.note || '未填写付款说明'}}</view>
+            <button class="edit-link" data-id="{{item.id}}" bindtap="editPaymentMethod">编辑收款信息</button>
+          </view>
+          <button class="danger-button compact-button" data-id="{{item.id}}" bindtap="removePaymentMethod">删除</button>
+        </view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <view class="section-heading">
+        <view><view class="section-title">店铺装修</view><view class="section-description">顾客端首页内容和背景均可自定义。</view></view>
+        <button class="primary-button compact-button" bindtap="editStore">开始编辑</button>
+      </view>
+      <view class="store-preview card">
+        <image wx:if="{{settings.heroBackgroundPath}}" class="store-background" src="{{settings.heroBackgroundPath}}" mode="aspectFill" />
+        <view wx:if="{{settings.heroBackgroundPath}}" class="store-overlay" />
+        <view class="store-copy">
+          <view class="store-brand"><view class="store-mark serif">{{settings.brandMark}}</view><view><view class="serif store-name">{{settings.brandName}}</view><view class="store-tagline">{{settings.brandTagline}}</view></view></view>
+          <view class="store-badge">{{settings.heroBadge}}</view>
+          <view class="store-title serif">{{settings.heroTitle}}</view>
+          <view class="store-description">{{settings.heroDescription}}</view>
+          <view class="store-note">{{settings.deliveryNote}}</view>
+        </view>
+      </view>
+      <button class="danger-button reset-button" bindtap="resetDemo">恢复全部演示数据</button>
+    </block>
+  </view>
+</view>

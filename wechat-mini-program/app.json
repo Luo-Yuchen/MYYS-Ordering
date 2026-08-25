@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "pages/customer/customer",
+    "pages/admin/admin",
+    "pages/product-edit/product-edit",
+    "pages/store-edit/store-edit"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#faf6f1",
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "馒有意思",
+    "backgroundColor": "#faf6f1",
+    "backgroundTextStyle": "dark"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

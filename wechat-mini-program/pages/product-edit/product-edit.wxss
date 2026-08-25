@@ -1,0 +1,147 @@
+.editor-shell {
+  padding: 36rpx var(--page-gutter) 60rpx;
+}
+
+.editor-eyebrow {
+  margin-bottom: 10rpx;
+  color: var(--sage-dark);
+  font-size: 22rpx;
+}
+
+.editor-card {
+  margin-top: 34rpx;
+  padding: 28rpx;
+}
+
+.image-uploader {
+  position: relative;
+  display: flex;
+  min-height: 280rpx;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 2rpx dashed #aaa29a;
+  border-radius: 40rpx 52rpx 42rpx 48rpx;
+  background: #f6f0e7;
+}
+
+.image-uploader image {
+  width: 100%;
+  height: 280rpx;
+}
+
+.upload-placeholder {
+  text-align: center;
+}
+
+.upload-mark {
+  display: flex;
+  width: 82rpx;
+  height: 82rpx;
+  margin: 0 auto 18rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 52% 48% 44% 56%;
+  background: var(--sage);
+  color: var(--stone);
+  font-family: "Kaiti SC", STKaiti, serif;
+  font-size: 32rpx;
+}
+
+.upload-title {
+  font-size: 30rpx;
+}
+
+.upload-note {
+  margin-top: 10rpx;
+  color: #8a8179;
+  font-size: 21rpx;
+}
+
+.upload-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(250, 246, 241, 0.88);
+  color: var(--sage-dark);
+}
+
+.remove-image {
+  margin: 14rpx auto 30rpx;
+  padding: 12rpx 20rpx;
+  background: transparent;
+  color: #8c4f3d;
+  font-size: 21rpx;
+  text-decoration: underline;
+}
+
+.image-uploader + .form-field {
+  margin-top: 30rpx;
+}
+
+.two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18rpx;
+}
+
+.short-textarea {
+  min-height: 140rpx;
+}
+
+.availability-row {
+  display: flex;
+  margin-top: 8rpx;
+  padding: 26rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+  border-radius: 30rpx 40rpx 32rpx 42rpx;
+  background: #edf0e8;
+}
+
+.availability-title {
+  font-size: 25rpx;
+  font-weight: 600;
+}
+
+.availability-note {
+  margin-top: 8rpx;
+  color: #78716c;
+  font-size: 20rpx;
+  line-height: 1.5;
+}
+
+.save-button {
+  width: 100%;
+  margin-top: 34rpx;
+}
+
+@media (max-width: 360px), (max-height: 700px) {
+  .editor-card {
+    margin-top: 26rpx;
+    padding: 22rpx;
+  }
+
+  .image-uploader {
+    min-height: 230rpx;
+  }
+
+  .image-uploader image {
+    height: 230rpx;
+  }
+
+  .two-column {
+    gap: 12rpx;
+  }
+}
+
+@media (min-width: 768px) {
+  .editor-shell {
+    max-width: 1000rpx;
+    margin-right: auto;
+    margin-left: auto;
+  }
+}

@@ -1,0 +1,64 @@
+<view class="page-shell editor-shell">
+  <view>
+    <view class="editor-eyebrow">顾客端首页</view>
+    <view class="section-title">店铺装修</view>
+    <view class="section-description">框选区域的文字和背景图片都可以在这里修改。</view>
+  </view>
+
+  <view class="preview-card card">
+    <image wx:if="{{heroBackgroundPath}}" class="preview-background" src="{{heroBackgroundPath}}" mode="aspectFill" />
+    <view wx:if="{{heroBackgroundPath}}" class="preview-overlay" />
+    <view class="preview-copy">
+      <view class="preview-brand"><view class="preview-mark serif">{{brandMark || '馒'}}</view><view><view class="serif preview-name">{{brandName || '店铺名称'}}</view><view class="preview-tagline">{{brandTagline || '店铺说明'}}</view></view></view>
+      <view class="preview-badge">{{heroBadge || '首页小标签'}}</view>
+      <view class="preview-title serif">{{heroTitle || '首页主标题'}}</view>
+      <view class="preview-description">{{heroDescription || '首页介绍文案'}}</view>
+      <view class="preview-note">{{deliveryNote || '配送和优惠提示'}}</view>
+    </view>
+  </view>
+
+  <view class="editor-card card">
+    <view class="background-uploader" bindtap="chooseBackground">
+      <image wx:if="{{heroBackgroundPath}}" src="{{heroBackgroundPath}}" mode="aspectFill" />
+      <view wx:else class="background-placeholder"><view class="upload-mark">景</view><view class="serif upload-title">选择首页背景图片</view><view class="upload-note">不选择时使用默认自然绿色插画</view></view>
+      <view wx:if="{{isProcessingImage}}" class="upload-loading">正在处理图片…</view>
+    </view>
+    <button wx:if="{{heroBackgroundPath}}" class="remove-image" bindtap="removeBackground">移除背景图片</button>
+
+    <view class="two-column brand-fields">
+      <view class="form-field">
+        <text class="field-label">圆形标记</text>
+        <input class="field-input" value="{{brandMark}}" maxlength="2" placeholder="馒" data-field="brandMark" bindinput="updateField" />
+      </view>
+      <view class="form-field">
+        <text class="field-label">店铺名称</text>
+        <input class="field-input" value="{{brandName}}" maxlength="16" placeholder="馒有意思" data-field="brandName" bindinput="updateField" />
+      </view>
+    </view>
+    <view class="form-field">
+      <text class="field-label">店铺说明</text>
+      <input class="field-input" value="{{brandTagline}}" maxlength="30" placeholder="每日现蒸 · 预约不等" data-field="brandTagline" bindinput="updateField" />
+    </view>
+    <view class="form-field">
+      <text class="field-label">首页小标签</text>
+      <input class="field-input" value="{{heroBadge}}" maxlength="30" placeholder="老面慢发酵 · 不加改良剂" data-field="heroBadge" bindinput="updateField" />
+    </view>
+    <view class="form-field">
+      <text class="field-label">首页主标题</text>
+      <textarea class="field-textarea short-textarea" value="{{heroTitle}}" maxlength="50" placeholder="每天现蒸，把柔软送到家" data-field="heroTitle" bindinput="updateField" />
+    </view>
+    <view class="form-field">
+      <text class="field-label">首页介绍</text>
+      <textarea class="field-textarea" value="{{heroDescription}}" maxlength="140" placeholder="介绍制作方式、口感和预约特色" data-field="heroDescription" bindinput="updateField" />
+    </view>
+    <view class="form-field">
+      <text class="field-label">主按钮文字</text>
+      <input class="field-input" value="{{heroButtonText}}" maxlength="16" placeholder="看看今日馒头" data-field="heroButtonText" bindinput="updateField" />
+    </view>
+    <view class="form-field">
+      <text class="field-label">配送和优惠提示</text>
+      <input class="field-input" value="{{deliveryNote}}" maxlength="40" placeholder="3km内配送 · 15元起送 · 满30元免配送费" data-field="deliveryNote" bindinput="updateField" />
+    </view>
+    <button class="primary-button save-button" bindtap="saveStoreSettings">保存店铺装修</button>
+  </view>
+</view>

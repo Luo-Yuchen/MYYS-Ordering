@@ -1,0 +1,11 @@
+{
+  "envId": "bun-order-d9gn0mjn09021bfbe",
+  "functionRoot": "cloudfunctions",
+  "functions": [
+    {
+      "name": "ordering-api",
+      "timeout": 20,
+      "runtime": "Nodejs18.15"
+    }
+  ]
+}

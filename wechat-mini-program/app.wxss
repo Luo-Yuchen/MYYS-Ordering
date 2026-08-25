@@ -1,0 +1,442 @@
+page {
+  --cream: #faf6f1;
+  --paper: #fffdf9;
+  --sage: #8b9d77;
+  --sage-dark: #59694d;
+  --clay: #d4a373;
+  --stone: #292524;
+  --page-gutter: 28rpx;
+  --control-height: 76rpx;
+  --control-font-size: 25rpx;
+  --card-padding: 24rpx;
+  min-height: 100%;
+  background: var(--cream);
+  color: var(--stone);
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 28rpx;
+}
+
+button {
+  box-sizing: border-box;
+  margin: 0;
+  line-height: 1.4;
+}
+
+button::after {
+  border: 0;
+}
+
+input,
+textarea {
+  box-sizing: border-box;
+}
+
+.page-shell {
+  min-height: 100vh;
+  padding-bottom: calc(130rpx + env(safe-area-inset-bottom));
+  background-image: radial-gradient(rgba(120, 106, 87, 0.08) 1rpx, transparent 1rpx);
+  background-size: 18rpx 18rpx;
+}
+
+.content {
+  padding: var(--page-gutter);
+}
+
+.serif {
+  font-family: "Songti SC", STSong, serif;
+}
+
+.card {
+  border: 1rpx solid #ded8cf;
+  border-radius: 40rpx 52rpx 42rpx 48rpx;
+  background: rgba(255, 253, 249, 0.94);
+}
+
+.primary-button,
+.secondary-button,
+.danger-button {
+  display: flex;
+  min-height: var(--control-height);
+  align-items: center;
+  justify-content: center;
+  border-radius: 999rpx;
+  font-size: var(--control-font-size);
+  font-weight: 600;
+}
+
+.primary-button {
+  background: var(--stone);
+  color: #fffdf9;
+}
+
+.secondary-button {
+  border: 1rpx solid #cfc8be;
+  background: #fffdf9;
+  color: var(--stone);
+}
+
+.danger-button {
+  border: 1rpx solid #cda89c;
+  background: #fff8f5;
+  color: #8c4f3d;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 14rpx;
+  color: #625d57;
+  font-size: 24rpx;
+}
+
+.field-input,
+.field-textarea,
+.field-picker {
+  width: 100%;
+  border: 1rpx solid #ded8cf;
+  border-radius: 28rpx 38rpx 30rpx 40rpx;
+  background: #fff;
+  color: var(--stone);
+}
+
+.field-input,
+.field-picker {
+  min-height: var(--control-height);
+  padding: 0 24rpx;
+  line-height: var(--control-height);
+}
+
+.field-textarea {
+  min-height: 180rpx;
+  padding: 24rpx 28rpx;
+  line-height: 1.6;
+}
+
+.form-field {
+  margin-bottom: 28rpx;
+}
+
+.section-title {
+  margin: 0;
+  color: var(--stone);
+  font-family: "Songti SC", STSong, serif;
+  font-size: 42rpx;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.section-description {
+  margin-top: 10rpx;
+  color: #78716c;
+  font-size: 24rpx;
+  line-height: 1.7;
+}
+
+.empty-state {
+  padding: 64rpx 32rpx;
+  text-align: center;
+}
+
+.empty-mark {
+  display: flex;
+  width: 112rpx;
+  height: 112rpx;
+  margin: 0 auto 28rpx;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #aaa29a;
+  border-radius: 56% 44% 48% 52%;
+  color: var(--sage-dark);
+  font-family: "Kaiti SC", STKaiti, serif;
+  font-size: 42rpx;
+  transform: rotate(-5deg);
+}
+
+.safe-bottom {
+  height: env(safe-area-inset-bottom);
+}
+
+/* 小屏进一步压缩留白；平板/横屏增加内容宽度而不是等比放大控件。 */
+@media (max-width: 360px), (max-height: 700px) {
+  page {
+    --page-gutter: 22rpx;
+    --control-height: 70rpx;
+    --control-font-size: 23rpx;
+    --card-padding: 20rpx;
+    font-size: 26rpx;
+  }
+
+  .page-shell {
+    padding-bottom: calc(116rpx + env(safe-area-inset-bottom));
+  }
+
+  .section-title {
+    font-size: 38rpx;
+  }
+
+  .section-description {
+    font-size: 22rpx;
+  }
+}
+
+@media (min-width: 768px) {
+  page {
+    --page-gutter: 36rpx;
+  }
+
+  .content,
+  .topbar {
+    width: 100%;
+    max-width: 1200rpx;
+    margin-right: auto;
+    margin-left: auto;
+  }
+}
+
+
+/* 复古怀旧风为小程序端默认主题：全局覆盖现代圆角与缩放动效。 */
+page {
+  --cream: #f5e6d3;
+  --paper: #f5e6d3;
+  --sage: #d4a373;
+  --sage-dark: #2e4a3f;
+  --clay: #d4a373;
+  --stone: #2e4a3f;
+  --vintage-brown: #8b4513;
+  --vintage-rust: #c94c4c;
+  --vintage-forest: #2e4a3f;
+  --vintage-secondary: #e8d5c0;
+  background: var(--cream);
+  color: var(--vintage-forest);
+  font-family: "Songti SC", STSong, "PingFang SC", serif;
+}
+
+.page-shell {
+  background-color: var(--cream) !important;
+  background-image: none !important;
+  color: var(--vintage-forest);
+}
+
+.topbar,
+.admin-topbar {
+  border-bottom: 6rpx double var(--vintage-brown) !important;
+  background: var(--cream) !important;
+  box-shadow: 0 8rpx 0 rgba(139, 69, 19, 0.12);
+}
+
+.section-title,
+.section-heading,
+.admin-title,
+.brand-name,
+.product-name,
+.order-title,
+.profile-title,
+.detail-name,
+.preview-title,
+.store-title {
+  color: var(--vintage-forest) !important;
+  letter-spacing: 3rpx;
+}
+
+button,
+.primary-button,
+.secondary-button,
+.danger-button,
+.role-button,
+.hero-button,
+.category-chip,
+.fulfillment-option,
+.nav-item,
+.admin-tab,
+.compact-button,
+.edit-link,
+.secondary-payment-button,
+.primary-payment-button {
+  border-radius: 4rpx !important;
+  transition: background-color 700ms, border-color 700ms, color 700ms, box-shadow 700ms !important;
+}
+
+button:active,
+.primary-button:active,
+.secondary-button:active,
+.role-button:active,
+.hero-button:active,
+.category-chip:active,
+.fulfillment-option:active,
+.nav-item:active,
+.admin-tab:active,
+.quantity-button:active {
+  transform: none !important;
+}
+
+.card,
+.product-card,
+.cart-item,
+.checkout-card,
+.order-card,
+.profile-card,
+.profile-order-entry,
+.admin-order,
+.admin-product,
+.production-card,
+.metric-card,
+.editor-card,
+.preview-card,
+.store-preview {
+  border: 4rpx solid var(--vintage-brown) !important;
+  border-radius: 4rpx !important;
+  background: var(--cream) !important;
+  box-shadow: 8rpx 8rpx 0 rgba(139, 69, 19, 0.15);
+}
+
+.brand-mark,
+.store-mark,
+.preview-mark {
+  border: 4rpx solid var(--vintage-brown) !important;
+  border-radius: 4rpx !important;
+  background: var(--vintage-rust) !important;
+  color: var(--cream) !important;
+  box-shadow: 6rpx 6rpx 0 rgba(139, 69, 19, 0.24);
+}
+
+.hero,
+.store-preview {
+  border-block: 6rpx double var(--vintage-brown) !important;
+  background: var(--vintage-brown) !important;
+  color: var(--cream);
+}
+
+.hero-overlay,
+.store-overlay,
+.preview-overlay {
+  background: rgba(46, 74, 63, 0.52) !important;
+}
+
+.hero-copy-card,
+.store-copy,
+.preview-copy {
+  border: 4rpx solid var(--vintage-brown) !important;
+  border-radius: 4rpx !important;
+  background: rgba(245, 230, 211, 0.94) !important;
+  color: var(--vintage-forest);
+  box-shadow: 8rpx 8rpx 0 rgba(46, 74, 63, 0.22);
+}
+
+.primary-button,
+.submit-button,
+.save-button,
+.primary-payment-button,
+.hero-button,
+.category-active,
+.fulfillment-active,
+.admin-tab-active {
+  border: 4rpx solid var(--vintage-brown) !important;
+  background: var(--vintage-rust) !important;
+  color: var(--cream) !important;
+}
+
+.secondary-button,
+.secondary-back-button,
+.secondary-payment-button,
+.role-button,
+.category-chip,
+.fulfillment-option,
+.admin-tab {
+  border: 4rpx solid var(--vintage-brown) !important;
+  background: var(--vintage-secondary) !important;
+  color: var(--vintage-forest) !important;
+}
+
+.danger-button,
+.reset-button {
+  border: 4rpx solid var(--vintage-rust) !important;
+  background: var(--cream) !important;
+  color: var(--vintage-rust) !important;
+}
+
+.field-input,
+.field-textarea,
+.field-picker,
+.profile-textarea,
+.image-uploader,
+.background-uploader {
+  border: 4rpx solid var(--vintage-brown) !important;
+  border-radius: 4rpx !important;
+  background: rgba(245, 230, 211, 0.76) !important;
+  color: var(--vintage-forest) !important;
+  box-shadow: inset 6rpx 6rpx 0 rgba(139, 69, 19, 0.08);
+}
+
+.product-image,
+.hero-background,
+.store-background,
+.preview-background {
+  filter: sepia(0.45) brightness(0.9);
+}
+
+/* 收款码不使用复古滤镜，避免降低二维码识别率。 */
+.admin-product-visual image {
+  filter: none;
+}
+
+.bottom-nav {
+  border: 4rpx solid var(--vintage-brown) !important;
+  border-radius: 4rpx !important;
+  background: var(--cream) !important;
+  box-shadow: 8rpx 8rpx 0 rgba(139, 69, 19, 0.18) !important;
+  backdrop-filter: none !important;
+}
+
+.nav-active,
+.edit-link,
+.profile-order-metrics,
+.order-total,
+.product-price,
+.detail-price {
+  color: var(--vintage-rust) !important;
+}
+
+.metric-card:nth-child(odd),
+.delivery-note,
+.local-tip,
+.profile-status {
+  background: var(--vintage-secondary) !important;
+}
+
+.hero-badge,
+.product-badge,
+.order-status,
+.store-badge,
+.preview-badge,
+.profile-channel-badge {
+  border: 3rpx solid var(--vintage-brown) !important;
+  border-radius: 4rpx !important;
+  background: var(--vintage-secondary) !important;
+  color: var(--vintage-forest) !important;
+}
+
+.stamp,
+.empty-mark,
+.upload-mark {
+  border: 6rpx double var(--vintage-rust) !important;
+  border-radius: 4rpx !important;
+  color: var(--vintage-rust) !important;
+}
+
+
+/* 新订单制作与配送双状态的统一怀旧配色。 */
+.status-pending,
+.status-waiting {
+  background: #ead4b9;
+  color: #5d3925;
+}
+
+.status-completed,
+.status-delivered {
+  background: #e8d5c0;
+  color: #2e4a3f;
+}
+
+.status-cancelled {
+  background: #f2d4cf;
+  color: #8b2f2f;
+}

@@ -1,0 +1,19 @@
+{
+  "appid": "wx514e6f35f9d7be0a",
+  "compileType": "miniprogram",
+  "libVersion": "latest",
+  "miniprogramRoot": "./",
+  "projectname": "manyouyisi-local-mini-program",
+  "description": "馒有意思微信小程序本地体验版",
+  "setting": {
+    "useCompilerPlugins": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": false,
+    "checkSiteMap": true,
+    "compileHotReLoad": true
+  },
+  "condition": {}
+}
