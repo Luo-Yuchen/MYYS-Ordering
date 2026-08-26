@@ -90,8 +90,8 @@ Page({
     this.setData({ isProcessingImage: true });
     try {
       const imagePath = await chooseAndSaveImage();
-      const adminKey = getApp().globalData.adminKey || "";
-      if (!adminKey) throw new Error("请先登录云端商家端");
+      const merchantSessionToken = getApp().globalData.merchantSessionToken || "";
+      if (!merchantSessionToken) throw new Error("请先登录云端商家端");
       const imageFileId = await uploadRemoteImage(imagePath, "product");
       this.setData({ imagePath, imageFileId });
     } catch (error) {
@@ -156,13 +156,13 @@ Page({
       /** 商品图片在 CloudBase 云存储中的文件编号。 */
       imageFileId: this.data.imageFileId,
     };
-    const adminKey = getApp().globalData.adminKey || "";
-    if (!adminKey) {
+    const merchantSessionToken = getApp().globalData.merchantSessionToken || "";
+    if (!merchantSessionToken) {
       wx.showToast({ title: "请先登录云端商家端", icon: "none" });
       return;
     }
     try {
-      const result = await saveRemoteProduct(product, adminKey);
+      const result = await saveRemoteProduct(product, merchantSessionToken);
       upsertProduct({ ...result.product, imagePath: result.product.imageUrl || this.data.imagePath });
       wx.showToast({ title: "商品已同步云端", icon: "success" });
       setTimeout(() => wx.navigateBack(), 450);

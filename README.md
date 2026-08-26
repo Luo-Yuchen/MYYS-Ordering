@@ -10,12 +10,13 @@
 - 订单区分待接单、制作中、待取餐、配送中、已完成和已取消等状态。
 - 网页端与小程序端默认使用复古怀旧风界面。
 - 商品、订单和收款设置统一使用腾讯云 CloudBase 数据库与云存储。
+- 商家端使用 CloudBase PG 数据库中的用户名和密码登录，首次登录强制改密。
 
 ## 技术架构
 
 ```text
 网页版（GitHub Pages） ─┐
-                       ├─ CloudBase 云函数 ─ 数据库 / 云存储
+                       ├─ CloudBase 云函数 ─ PostgreSQL / 云存储
 微信小程序 ────────────┘
 ```
 
@@ -54,7 +55,7 @@ pnpm lint
 
 ## 部署
 
-1. 按照 [CLOUDBASE_SETUP.md](./CLOUDBASE_SETUP.md) 创建数据库集合并部署 `ordering-api` 云函数。
+1. 按照 [CLOUDBASE_SETUP.md](./CLOUDBASE_SETUP.md) 应用 PostgreSQL 迁移并部署 `ordering-api` 云函数。
 2. 在 CloudBase 控制台启用匿名登录，并配置网页安全域名。
 3. 在微信开发者工具中导入 `wechat-mini-program`，配置云开发环境后上传小程序。
 4. GitHub `main` 分支更新后，仓库工作流会自动构建并发布网页版。

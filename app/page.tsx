@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import NextImage from "next/image";
 import { callOrderingFunction } from "../lib/cloudbase-client";
 
@@ -219,6 +219,28 @@ type StoreResponse = {
   miniProgram: MiniProgramConfig;
 };
 
+/** 商家账号的公开信息，不包含密码摘要和会话令牌。 */
+type MerchantAccount = {
+  /** 商家账号唯一标识。 */
+  id: string;
+  /** 商家登录用户名。 */
+  username: string;
+  /** 商家后台展示名称。 */
+  displayName: string;
+  /** 是否必须先修改初始密码。 */
+  mustChangePassword: boolean;
+};
+
+/** 商家登录接口返回的数据。 */
+type MerchantLoginResponse = {
+  /** 已通过数据库校验的商家账号。 */
+  merchant: MerchantAccount;
+  /** 仅保存在当前页面内存中的商家会话令牌。 */
+  merchantSessionToken: string;
+  /** 商家会话失效时间。 */
+  expiresAt: string;
+};
+
 /** 顾客端页面标签。 */
 type CustomerView = "shop" | "cart" | "profile" | "orders";
 
@@ -399,26 +421,26 @@ async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Pro
   const url = new URL(rawUrl, window.location.origin);
   const headers = new Headers(init?.headers);
   const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
-  const adminKey = headers.get("x-admin-key") ?? "";
+  const merchantSessionToken = headers.get("x-merchant-session") ?? "";
   const accessToken = headers.get("x-order-token") ?? "";
   if (url.pathname === "/api/store") {
     if ((init?.method ?? "GET") === "PUT") {
-      return callOrderingFunction<T>("savePaymentMethods", { ...body, adminKey });
+      return callOrderingFunction<T>("savePaymentMethods", { ...body, merchantSessionToken });
     }
-    return callOrderingFunction<T>("getStore", { adminKey });
+    return callOrderingFunction<T>("getStore", {});
   }
   if (url.pathname === "/api/orders" && (init?.method ?? "GET") === "POST") {
     return callOrderingFunction<T>("createOrder", body);
   }
   if (url.pathname === "/api/orders") {
     const tokens = (url.searchParams.get("tokens") ?? "").split(",").filter(Boolean);
-    return callOrderingFunction<T>("getOrders", { tokens, adminKey });
+    return callOrderingFunction<T>("getOrders", { tokens, merchantSessionToken });
   }
   if (url.pathname.startsWith("/api/orders/") && (init?.method ?? "GET") === "PATCH") {
     return callOrderingFunction<T>("updateOrder", {
       ...body,
       orderId: decodeURIComponent(url.pathname.slice("/api/orders/".length)),
-      adminKey,
+      merchantSessionToken,
       accessToken,
     });
   }
@@ -705,7 +727,22 @@ export default function Home() {
   const [miniProgram, setMiniProgram] = useState<MiniProgramConfig>({ entryUrl: "", qrCodeUrl: "" });
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [backendMessage, setBackendMessage] = useState("");
-  const [adminKey, setAdminKey] = useState("");
+  /** 当前页面内存中的商家会话令牌，刷新或关闭页面后自动清除。 */
+  const [merchantSessionToken, setMerchantSessionToken] = useState("");
+  /** 商家登录用户名。 */
+  const [merchantUsername, setMerchantUsername] = useState("admin");
+  /** 商家登录或首次改密时填写的当前密码。 */
+  const [merchantPassword, setMerchantPassword] = useState("");
+  /** 商家首次登录后填写的新密码。 */
+  const [merchantNewPassword, setMerchantNewPassword] = useState("");
+  /** 当前已登录商家的公开账号信息。 */
+  const [merchant, setMerchant] = useState<MerchantAccount | null>(null);
+  /** 是否显示商家账号登录或首次改密弹层。 */
+  const [isMerchantLoginOpen, setIsMerchantLoginOpen] = useState(false);
+  /** 是否正在校验商家账号或修改密码。 */
+  const [isMerchantAuthenticating, setIsMerchantAuthenticating] = useState(false);
+  /** 商家登录和首次改密的校验提示。 */
+  const [merchantAuthMessage, setMerchantAuthMessage] = useState("");
 
   useEffect(() => {
     let isCancelled = false;
@@ -968,10 +1005,97 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  /** 使用数据库会话加载商家有权查看的商品、订单、店铺装修和收款设置。 */
+  async function loadMerchantWorkspace(sessionToken: string) {
+    const [result, storeResult] = await Promise.all([
+      callOrderingFunction<{ /** 商家有权查看的全部订单。 */ orders: Order[] }>("getOrders", { merchantSessionToken: sessionToken }),
+      callOrderingFunction<StoreResponse>("getStore", {}),
+    ]);
+    const sharedPaymentMethods = getStorePaymentMethods(storeResult);
+    setOrders(result.orders);
+    setProducts(storeResult.products);
+    setInventory(Object.fromEntries(storeResult.products.map((product) => [product.id, { stock: product.stock, available: product.available !== false }])));
+    if (storeResult.settings) {
+      setStoreSettings(storeResult.settings);
+      setStoreSettingsDraft(storeResult.settings);
+    }
+    setPaymentMethods(sharedPaymentMethods);
+    setPaymentMethodDrafts(sharedPaymentMethods);
+    setSelectedPaymentMethodId(sharedPaymentMethods.find((method) => method.enabled)?.id ?? "");
+  }
+
+  /** 使用数据库中的商家用户名和密码登录，并取得短期会话令牌。 */
+  async function loginMerchant(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const username = merchantUsername.trim().toLowerCase();
+    if (!username || !merchantPassword) {
+      setMerchantAuthMessage("请输入商家用户名和密码");
+      return;
+    }
+    setIsMerchantAuthenticating(true);
+    setMerchantAuthMessage("");
+    try {
+      const result = await callOrderingFunction<MerchantLoginResponse>("merchantLogin", { username, password: merchantPassword });
+      // 初始密码账号只能先改密；普通账号登录后再加载受保护的经营数据。
+      if (!result.merchant.mustChangePassword) await loadMerchantWorkspace(result.merchantSessionToken);
+      setMerchant(result.merchant);
+      setMerchantSessionToken(result.merchantSessionToken);
+      setMerchantUsername(result.merchant.username);
+      setIsAdmin(true);
+      setIsMerchantLoginOpen(false);
+      setBackendMessage("");
+      if (!result.merchant.mustChangePassword) setMerchantPassword("");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      setMerchantSessionToken("");
+      setMerchant(null);
+      setMerchantAuthMessage(error instanceof Error ? error.message : "商家登录失败");
+    } finally {
+      setIsMerchantAuthenticating(false);
+    }
+  }
+
+  /** 首次登录后校验当前密码，并通过云函数原子更新数据库密码摘要。 */
+  async function changeMerchantPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!merchantSessionToken || !merchantPassword || merchantNewPassword.length < 10) {
+      setMerchantAuthMessage("新密码至少需要 10 位");
+      return;
+    }
+    setIsMerchantAuthenticating(true);
+    setMerchantAuthMessage("");
+    try {
+      await callOrderingFunction<{ /** 密码是否修改成功。 */ ok: boolean }>("changeMerchantPassword", {
+        merchantSessionToken,
+        currentPassword: merchantPassword,
+        newPassword: merchantNewPassword,
+      });
+      // 改密事务会撤销旧会话，前端必须清除令牌并要求使用新密码重新登录。
+      setMerchantSessionToken("");
+      setMerchant(null);
+      setIsAdmin(false);
+      setIsMerchantLoginOpen(true);
+      setMerchantPassword("");
+      setMerchantNewPassword("");
+      setMerchantAuthMessage("密码已修改，请使用新密码重新登录");
+    } catch (error) {
+      setMerchantAuthMessage(error instanceof Error ? error.message : "密码修改失败");
+    } finally {
+      setIsMerchantAuthenticating(false);
+    }
+  }
+
   /** 在顾客端与 CloudBase 云端商家端之间切换。 */
   async function toggleAdmin() {
     if (isAdmin) {
-      // 离开商家端时恢复当前设备自己的顾客订单，避免顾客视图暴露全部订单。
+      // 离开商家端时主动撤销数据库会话，并恢复当前设备自己的顾客订单。
+      if (merchantSessionToken) {
+        try {
+          await callOrderingFunction("merchantLogout", { merchantSessionToken });
+        } catch {
+          // 退出界面不依赖网络成功；令牌仍会在服务端到期。
+        }
+      }
       try {
         const savedOrders = window.localStorage.getItem("manxiang-orders-v1");
         setOrders(savedOrders ? (JSON.parse(savedOrders) as Order[]).map(normalizeOrder) : []);
@@ -979,40 +1103,17 @@ export default function Home() {
         setOrders([]);
       }
       setIsAdmin(false);
-      setAdminKey("");
+      setMerchantSessionToken("");
+      setMerchant(null);
+      setMerchantPassword("");
+      setMerchantNewPassword("");
+      setMerchantAuthMessage("");
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
 
-    const key = window.prompt("请输入商家管理口令")?.trim() ?? "";
-    if (!key) return;
-
-    try {
-      const [result, storeResult] = await Promise.all([
-        requestJson<{ /** 商家有权查看的全部订单。 */ orders: Order[] }>("/api/orders", {
-          headers: { "x-admin-key": key },
-        }),
-        requestJson<StoreResponse>("/api/store", { headers: { "x-admin-key": key } }),
-      ]);
-      const sharedPaymentMethods = getStorePaymentMethods(storeResult);
-      setAdminKey(key);
-      setOrders(result.orders);
-      setProducts(storeResult.products);
-      setInventory(Object.fromEntries(storeResult.products.map((product) => [product.id, { stock: product.stock, available: product.available !== false }])));
-      if (storeResult.settings) {
-        setStoreSettings(storeResult.settings);
-        setStoreSettingsDraft(storeResult.settings);
-      }
-      setPaymentMethods(sharedPaymentMethods);
-      setPaymentMethodDrafts(sharedPaymentMethods);
-      setSelectedPaymentMethodId(sharedPaymentMethods.find((method) => method.enabled)?.id ?? "");
-      setIsAdmin(true);
-      setBackendMessage("");
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : "管理口令错误");
-      return;
-    }
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setMerchantAuthMessage("");
+    setIsMerchantLoginOpen(true);
   }
   /** 校验顾客信息，并通过共享服务生成一条待付款订单。 */
   async function submitOrder() {
@@ -1109,15 +1210,15 @@ export default function Home() {
 
   /** 通过 CloudBase 云函数更新商家端订单状态。 */
   async function updateOrderStatus(orderId: string, status: OrderStatus) {
-    if (!adminKey) {
-      window.alert("请先通过管理口令进入云端商家端");
+    if (!merchantSessionToken) {
+      window.alert("请先使用用户名和密码登录云端商家端");
       return;
     }
 
     try {
       await requestJson<{ /** 更新是否成功。 */ ok: boolean }>(`/api/orders/${encodeURIComponent(orderId)}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+        headers: { "Content-Type": "application/json", "x-merchant-session": merchantSessionToken },
         body: JSON.stringify({ status }),
       });
       setOrders((current) => current.map((order) => (
@@ -1130,15 +1231,15 @@ export default function Home() {
 
   /** 通过共享服务单独更新配送订单的配送进度。 */
   async function updateDeliveryStatus(orderId: string, deliveryStatus: DeliveryStatus) {
-    if (!adminKey) {
-      window.alert("请先通过管理口令进入云端商家端");
+    if (!merchantSessionToken) {
+      window.alert("请先使用用户名和密码登录云端商家端");
       return;
     }
 
     try {
       await requestJson<{ /** 更新是否成功。 */ ok: boolean }>("/api/orders/" + encodeURIComponent(orderId), {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+        headers: { "Content-Type": "application/json", "x-merchant-session": merchantSessionToken },
         body: JSON.stringify({ deliveryStatus }),
       });
       setOrders((current) => current.map((order) => (
@@ -1153,15 +1254,15 @@ export default function Home() {
 
   /** 由商家确认或驳回顾客提交的付款信息。 */
   async function updatePaymentStatus(orderId: string, paymentStatus: Extract<PaymentStatus, "confirmed" | "rejected">) {
-    if (!adminKey) {
-      window.alert("请先通过管理口令进入云端商家端");
+    if (!merchantSessionToken) {
+      window.alert("请先使用用户名和密码登录云端商家端");
       return;
     }
 
     try {
       await requestJson<{ /** 更新是否成功。 */ ok: boolean }>(`/api/orders/${encodeURIComponent(orderId)}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+        headers: { "Content-Type": "application/json", "x-merchant-session": merchantSessionToken },
         body: JSON.stringify({ paymentStatus }),
       });
       setOrders((current) => current.map((order) => (
@@ -1219,14 +1320,14 @@ export default function Home() {
 
     setIsSavingPaymentMethods(true);
     try {
-      if (!adminKey) {
-        setPaymentSettingsMessage("请先通过管理口令进入云端商家端");
+      if (!merchantSessionToken) {
+        setPaymentSettingsMessage("请先使用用户名和密码登录云端商家端");
         return;
       }
 
       const result = await requestJson<{ /** 服务端保存后的收款方式列表。 */ paymentMethods: PaymentMethod[] }>("/api/store", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+        headers: { "Content-Type": "application/json", "x-merchant-session": merchantSessionToken },
         body: JSON.stringify({ paymentMethods: normalizedMethods }),
       });
       setPaymentMethods(result.paymentMethods);
@@ -1266,11 +1367,11 @@ export default function Home() {
   /** 调整指定商品库存并立即保存到 CloudBase。 */
   async function updateProductStock(productId: string, change: number) {
     const product = products.find((item) => item.id === productId);
-    if (!product || !adminKey) return;
+    if (!product || !merchantSessionToken) return;
     const nextStock = Math.max((inventory[productId]?.stock ?? product.stock) + change, 0);
     try {
       const result = await callOrderingFunction<{ /** 云端保存后的商品。 */ product: Product }>("saveProduct", {
-        adminKey,
+        merchantSessionToken,
         product: { ...product, stock: nextStock, available: inventory[productId]?.available ?? true },
       });
       setProducts((current) => current.map((item) => item.id === productId ? result.product : item));
@@ -1283,11 +1384,11 @@ export default function Home() {
   /** 切换商品上下架状态并立即保存到 CloudBase。 */
   async function toggleProductAvailability(productId: string) {
     const product = products.find((item) => item.id === productId);
-    if (!product || !adminKey) return;
+    if (!product || !merchantSessionToken) return;
     const available = !(inventory[productId]?.available ?? true);
     try {
       const result = await callOrderingFunction<{ /** 云端保存后的商品。 */ product: Product }>("saveProduct", {
-        adminKey,
+        merchantSessionToken,
         product: { ...product, stock: inventory[productId]?.stock ?? product.stock, available },
       });
       setProducts((current) => current.map((item) => item.id === productId ? result.product : item));
@@ -1350,7 +1451,7 @@ export default function Home() {
     setProductEditorError("");
     try {
       const dataUrl = await compressUploadedImage(file);
-      const uploaded = await callOrderingFunction<{ /** 云存储文件编号。 */ fileId: string; /** 临时预览地址。 */ url: string }>("uploadImage", { adminKey, scene: "product", dataUrl });
+      const uploaded = await callOrderingFunction<{ /** 云存储文件编号。 */ fileId: string; /** 临时预览地址。 */ url: string }>("uploadImage", { merchantSessionToken, scene: "product", dataUrl });
       setProductDraft((current) => ({ ...current, imageUrl: uploaded.url, imageFileId: uploaded.fileId }));
     } catch (error) {
       setProductEditorError(error instanceof Error ? error.message : "图片处理失败");
@@ -1375,7 +1476,7 @@ export default function Home() {
     setStoreSettingsMessage("");
     try {
       const dataUrl = await compressUploadedImage(file, 1800, 0.8);
-      const uploaded = await callOrderingFunction<{ /** 云存储文件编号。 */ fileId: string; /** 临时预览地址。 */ url: string }>("uploadImage", { adminKey, scene: "store", dataUrl });
+      const uploaded = await callOrderingFunction<{ /** 云存储文件编号。 */ fileId: string; /** 临时预览地址。 */ url: string }>("uploadImage", { merchantSessionToken, scene: "store", dataUrl });
       setStoreSettingsDraft((current) => ({ ...current, heroBackgroundImage: uploaded.url, heroBackgroundFileId: uploaded.fileId }));
     } catch (error) {
       setStoreSettingsMessage(error instanceof Error ? error.message : "背景图片处理失败");
@@ -1412,12 +1513,12 @@ export default function Home() {
       return;
     }
 
-    if (!adminKey) {
-      setStoreSettingsMessage("请先通过管理口令进入云端商家端");
+    if (!merchantSessionToken) {
+      setStoreSettingsMessage("请先使用用户名和密码登录云端商家端");
       return;
     }
     try {
-      const result = await callOrderingFunction<{ /** 云端保存后的店铺设置。 */ settings: StoreSettings }>("saveStoreSettings", { adminKey, settings: nextSettings });
+      const result = await callOrderingFunction<{ /** 云端保存后的店铺设置。 */ settings: StoreSettings }>("saveStoreSettings", { merchantSessionToken, settings: nextSettings });
       setStoreSettings(result.settings);
       setStoreSettingsDraft(result.settings);
       setStoreSettingsMessage("店铺展示已保存到 CloudBase，两端已同步更新");
@@ -1461,15 +1562,15 @@ export default function Home() {
       return;
     }
 
-    if (!adminKey) {
-      setProductEditorError("请先通过管理口令进入云端商家端");
+    if (!merchantSessionToken) {
+      setProductEditorError("请先使用用户名和密码登录云端商家端");
       return;
     }
     const productId = editingProductId || `product-${Date.now()}`;
     const currentProduct = products.find((product) => product.id === productId);
     try {
       const result = await callOrderingFunction<{ /** 云端保存后的商品。 */ product: Product }>("saveProduct", {
-        adminKey,
+        merchantSessionToken,
         product: {
           id: productId,
           name,
@@ -1530,6 +1631,40 @@ export default function Home() {
         </div>
       </header>
 
+      {isMerchantLoginOpen || merchant?.mustChangePassword ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/45 px-5 py-8 backdrop-blur-sm">
+          <form onSubmit={merchant?.mustChangePassword ? changeMerchantPassword : loginMerchant} className="w-full max-w-md rounded-[2rem] border border-stone-200 bg-[#faf6f1] p-7 shadow-[0_24px_70px_rgba(76,63,52,0.24)] md:p-9">
+            <p className="text-sm text-stone-600">{merchant?.mustChangePassword ? "首次登录安全设置" : "CloudBase PG 商家后台"}</p>
+            <h2 className="mt-2 font-serif text-3xl">{merchant?.mustChangePassword ? "请先修改初始密码" : "商家账号登录"}</h2>
+            <div className="mt-6 space-y-4">
+              {!merchant?.mustChangePassword ? (
+                <label className="field-label">
+                  商家用户名
+                  <input value={merchantUsername} onChange={(event) => setMerchantUsername(event.target.value)} autoComplete="username" className="rounded-full border border-stone-200 bg-white px-5 py-3" placeholder="admin" />
+                </label>
+              ) : <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900">账号 {merchant.username} 正在使用临时密码，完成修改后才能管理订单和店铺。</p>}
+              <label className="field-label">
+                {merchant?.mustChangePassword ? "当前临时密码" : "登录密码"}
+                <input type="password" value={merchantPassword} onChange={(event) => setMerchantPassword(event.target.value)} autoComplete="current-password" className="rounded-full border border-stone-200 bg-white px-5 py-3" />
+              </label>
+              {merchant?.mustChangePassword ? (
+                <label className="field-label">
+                  新密码（至少 10 位）
+                  <input type="password" value={merchantNewPassword} onChange={(event) => setMerchantNewPassword(event.target.value)} autoComplete="new-password" className="rounded-full border border-stone-200 bg-white px-5 py-3" />
+                </label>
+              ) : null}
+            </div>
+            {merchantAuthMessage ? <p className="mt-4 text-sm font-medium text-red-800" role="alert">{merchantAuthMessage}</p> : null}
+            <div className="mt-7 flex justify-end gap-3">
+              {!merchant?.mustChangePassword ? <button type="button" onClick={() => setIsMerchantLoginOpen(false)} className="rounded-full border border-stone-300 px-6 py-3">取消</button> : null}
+              <button type="submit" disabled={isMerchantAuthenticating} className="rounded-full bg-stone-800 px-7 py-3 font-medium text-stone-50 disabled:opacity-60">
+                {isMerchantAuthenticating ? "正在验证中" : merchant?.mustChangePassword ? "保存新密码" : "登录商家端"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
       {backendMessage ? (
         <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-center text-sm text-amber-900" role="status">
           {backendMessage}。当前显示最近一次缓存，CloudBase 恢复后请刷新重试。
@@ -1544,7 +1679,7 @@ export default function Home() {
               <h1 className="mt-1 font-serif text-3xl md:text-4xl">店铺接单台</h1>
             </div>
             <div className="admin-date-mark" aria-label="当前营业状态">
-              <span className="status-dot" /> {adminKey ? "CloudBase 云端接单" : "等待云端登录"}
+              <span className="status-dot" /> {merchantSessionToken ? (merchant?.displayName ?? merchantUsername) + " - PG 云端接单" : "等待云端登录"}
             </div>
           </section>
 
@@ -1898,7 +2033,7 @@ export default function Home() {
               )}
 
               <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-[2rem] border border-stone-200 bg-white p-5">
-                <p className="text-sm text-stone-600">{adminKey ? "保存后同步到网页版与小程序" : "请先使用管理口令进入 CloudBase 商家端"}</p>
+                <p className="text-sm text-stone-600">{merchantSessionToken ? "保存后同步到网页版与小程序" : "请先使用用户名和密码登录 CloudBase 商家端"}</p>
                 <button type="button" onClick={() => void savePaymentMethods()} disabled={isSavingPaymentMethods} className="rounded-full bg-[#59694d] px-7 py-3 font-medium text-white disabled:cursor-wait disabled:opacity-60">{isSavingPaymentMethods ? "正在保存…" : "保存全部收款设置"}</button>
               </div>
             </section>

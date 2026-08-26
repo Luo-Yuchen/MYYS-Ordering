@@ -15,6 +15,44 @@
       <view class="metric-card"><text>在售商品</text><strong class="serif">{{availableCount}}</strong></view>
     </view>
 
+    <view class="admin-order card merchant-auth-card">
+      <block wx:if="{{!merchantSessionToken}}">
+        <view class="serif order-customer">商家账号登录</view>
+        <view class="section-description">用户名和密码由 CloudBase PG 数据库统一校验。</view>
+        <view class="form-field">
+          <view class="field-label">商家用户名</view>
+          <input class="field-input" value="{{merchantUsername}}" bindinput="updateMerchantUsername" placeholder="admin" />
+        </view>
+        <view class="form-field">
+          <view class="field-label">登录密码</view>
+          <input class="field-input" password value="{{merchantPassword}}" bindinput="updateMerchantPassword" placeholder="请输入商家密码" />
+        </view>
+        <button class="primary-button" loading="{{isSyncingPayments}}" bindtap="loginMerchant">登录商家端</button>
+      </block>
+      <block wx:else>
+        <view class="section-heading">
+          <view>
+            <view class="serif order-customer">{{merchantAccount.displayName || merchantAccount.username}}</view>
+            <view class="section-description">CloudBase PG 商家会话已生效</view>
+          </view>
+          <button class="secondary-button compact-button" bindtap="logoutMerchant">退出登录</button>
+        </view>
+        <block wx:if="{{merchantAccount.mustChangePassword}}">
+          <view class="section-description auth-warning">当前使用临时密码，请完成修改后再管理订单和店铺。</view>
+          <view class="form-field">
+            <view class="field-label">当前临时密码</view>
+            <input class="field-input" password value="{{merchantPassword}}" bindinput="updateMerchantPassword" />
+          </view>
+          <view class="form-field">
+            <view class="field-label">新密码（至少10位）</view>
+            <input class="field-input" password value="{{merchantNewPassword}}" bindinput="updateMerchantNewPassword" />
+          </view>
+          <button class="primary-button" loading="{{isSyncingPayments}}" bindtap="changeMerchantPassword">保存新密码</button>
+        </block>
+      </block>
+      <view wx:if="{{paymentMessage}}" class="section-description auth-message">{{paymentMessage}}</view>
+    </view>
+
     <scroll-view class="admin-tabs" scroll-x enable-flex>
       <button class="admin-tab {{activeView === 'orders' ? 'admin-tab-active' : ''}}" data-view="orders" bindtap="setActiveView">订单</button>
       <button class="admin-tab {{activeView === 'production' ? 'admin-tab-active' : ''}}" data-view="production" bindtap="setActiveView">备货</button>
@@ -115,15 +153,8 @@
       </view>
 
       <view class="admin-order card">
-        <view class="form-field">
-          <view class="field-label">商家管理口令</view>
-          <input class="field-input" password value="{{adminKey}}" bindinput="updateAdminKey" placeholder="用于读取和同步云端收款设置" />
-        </view>
-        <view class="section-heading">
-          <button class="secondary-button compact-button" loading="{{isSyncingPayments}}" bindtap="loadCloudPaymentMethods">读取云端设置</button>
-          <button class="primary-button compact-button" loading="{{isSyncingPayments}}" bindtap="syncPaymentMethods">同步全部设置</button>
-        </view>
-        <view wx:if="{{paymentMessage}}" class="section-description">{{paymentMessage}}</view>
+        <view class="section-description">{{merchantSessionToken ? '当前收款设置由 CloudBase PG 统一保存' : '请先使用顶部的商家账号登录'}}</view>
+        <button class="primary-button compact-button" loading="{{isSyncingPayments}}" bindtap="syncPaymentMethods">同步全部设置</button>
       </view>
 
       <view wx:if="{{isPaymentEditorOpen}}" class="admin-order card">
@@ -153,7 +184,7 @@
 
       <view wx:if="{{paymentMethods.length === 0}}" class="empty-state card">
         <view class="empty-mark">码</view><view class="serif empty-title">还没有收款码</view>
-        <view class="section-description">新增后先保存到本机，再用管理口令同步到云端。</view>
+        <view class="section-description">新增后先保存到本机，登录商家账号后同步到云端。</view>
       </view>
       <view wx:else class="admin-list">
         <view wx:for="{{paymentMethods}}" wx:key="id" class="admin-product card">

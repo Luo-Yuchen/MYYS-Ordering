@@ -4,6 +4,6 @@
   },
   "timeout": 20,
   "envVariables": {
-    "ADMIN_ACCESS_KEY": "请部署后在 CloudBase 控制台修改为高强度管理口令"
+    "CLOUDBASE_ENV_ID": "bun-order-d9gn0mjn09021bfbe"
   }
 }

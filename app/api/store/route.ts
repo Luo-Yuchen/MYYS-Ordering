@@ -1,4 +1,4 @@
-import { getPublicServerError, isAdminKeyValid, supabaseRequest } from "../../../lib/supabase-rest";
+import { getPublicServerError, supabaseRequest } from "../../../lib/supabase-rest";
 
 /** Supabase 返回的商品记录。 */
 type ProductRow = {
@@ -66,22 +66,6 @@ type PaymentMethodRow = {
   sort_order: number;
 };
 
-/** 商家提交的收款方式。 */
-type PaymentMethodInput = {
-  /** 收款方式唯一标识。 */
-  id?: string;
-  /** 收款方式名称。 */
-  name?: string;
-  /** 收款人展示名称。 */
-  payeeName?: string;
-  /** 收款二维码图片地址。 */
-  qrCodeUrl?: string;
-  /** 付款说明或备注。 */
-  note?: string;
-  /** 是否向顾客展示。 */
-  enabled?: boolean;
-};
-
 /** 将数据库收款方式转换为两端共用的驼峰结构。 */
 function mapPaymentMethod(row: PaymentMethodRow) {
   return {
@@ -92,15 +76,6 @@ function mapPaymentMethod(row: PaymentMethodRow) {
     note: row.note,
     enabled: row.enabled,
   };
-}
-
-/** 校验二维码是否使用可跨端访问的 HTTPS 地址。 */
-function isValidPaymentImageUrl(value: string) {
-  try {
-    return new URL(value).protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 /** 读取环境变量中的旧版单收款码，兼容尚未迁移数据库的店铺。 */
@@ -118,14 +93,8 @@ function getLegacyPaymentMethods() {
 }
 
 /** 返回 H5 与小程序共用的在售商品、店铺设置和收款方式列表。 */
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const providedAdminKey = request.headers.get("x-admin-key");
-    const isAdmin = isAdminKeyValid(providedAdminKey);
-    if (providedAdminKey && !isAdmin) {
-      return Response.json({ message: "商家管理口令错误" }, { status: 403 });
-    }
-
     const [products, settingsRows, paymentRows] = await Promise.all([
       supabaseRequest<ProductRow[]>("products?select=*&available=eq.true&order=sort_order.asc"),
       supabaseRequest<StoreSettingsRow[]>("store_settings?select=*&id=eq.default&limit=1"),
@@ -134,7 +103,7 @@ export async function GET(request: Request) {
     ]);
     const settings = settingsRows[0];
     const paymentMethods = paymentRows.length > 0
-      ? paymentRows.filter((method) => isAdmin || method.enabled).map(mapPaymentMethod)
+      ? paymentRows.filter((method) => method.enabled).map(mapPaymentMethod)
       : getLegacyPaymentMethods();
     const primaryPayment = paymentMethods.find((method) => method.enabled) ?? paymentMethods[0];
 
@@ -180,73 +149,7 @@ export async function GET(request: Request) {
   }
 }
 
-/** 校验管理口令并覆盖保存完整收款方式列表。 */
-export async function PUT(request: Request) {
-  try {
-    if (!isAdminKeyValid(request.headers.get("x-admin-key"))) {
-      return Response.json({ message: "商家管理口令错误" }, { status: 403 });
-    }
-    const body = await request.json() as { /** 完整收款方式列表。 */ paymentMethods?: PaymentMethodInput[] };
-    if (!Array.isArray(body.paymentMethods) || body.paymentMethods.length > 12) {
-      return Response.json({ message: "收款码列表格式错误，最多可配置 12 个" }, { status: 400 });
-    }
-
-    const paymentMethods = body.paymentMethods.map((method, index) => ({
-      id: (method.id ?? "").trim(),
-      name: (method.name ?? "").trim().slice(0, 40),
-      payeeName: (method.payeeName ?? "").trim().slice(0, 40),
-      qrCodeUrl: (method.qrCodeUrl ?? "").trim().slice(0, 2000),
-      note: (method.note ?? "").trim().slice(0, 200),
-      enabled: method.enabled !== false,
-      sortOrder: index,
-    }));
-
-    if (paymentMethods.some((method) => (
-      !/^[a-zA-Z0-9_-]{1,64}$/.test(method.id)
-      || !method.name
-      || !method.payeeName
-      || !isValidPaymentImageUrl(method.qrCodeUrl)
-    ))) {
-      return Response.json({ message: "请完整填写名称、收款人和 HTTPS 二维码地址" }, { status: 400 });
-    }
-    if (new Set(paymentMethods.map((method) => method.id)).size !== paymentMethods.length) {
-      return Response.json({ message: "收款方式编号不能重复" }, { status: 400 });
-    }
-
-    if (paymentMethods.length > 0) {
-      // 先原子写入本次列表，再删除不在列表中的旧记录，避免编辑失败时丢失原配置。
-      await supabaseRequest<PaymentMethodRow[]>("payment_methods?on_conflict=id", {
-        method: "POST",
-        body: paymentMethods.map((method) => ({
-          id: method.id,
-          name: method.name,
-          payee_name: method.payeeName,
-          qr_code_url: method.qrCodeUrl,
-          note: method.note,
-          enabled: method.enabled,
-          sort_order: method.sortOrder,
-          updated_at: new Date().toISOString(),
-        })),
-        prefer: "resolution=merge-duplicates,return=representation",
-      });
-    }
-
-    const deleteFilter = paymentMethods.length > 0
-      ? `id=not.in.(${paymentMethods.map((method) => method.id).join(",")})`
-      : "id=not.is.null";
-    await supabaseRequest<void>(`payment_methods?${deleteFilter}`, { method: "DELETE" });
-    return Response.json({
-      paymentMethods: paymentMethods.map((method) => ({
-        id: method.id,
-        name: method.name,
-        payeeName: method.payeeName,
-        qrCodeUrl: method.qrCodeUrl,
-        note: method.note,
-        enabled: method.enabled,
-      })),
-    });
-  } catch (error) {
-    const publicError = getPublicServerError(error);
-    return Response.json({ message: publicError.message }, { status: publicError.status });
-  }
+/** 旧 Supabase 管理写入口已停用，商家操作统一由 CloudBase PG 云函数校验会话。 */
+export async function PUT() {
+  return Response.json({ message: "请通过 CloudBase 商家端保存收款设置" }, { status: 410 });
 }

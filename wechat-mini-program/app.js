@@ -2,9 +2,12 @@ const { cloudBaseEnvId } = require("./config");
 const { ensureSeedData } = require("./utils/store");
 
 App({
-  /** 当前小程序会话中的商家管理口令，退出小程序后自动清除。 */
+  /** 当前小程序进程中的商家登录信息，退出小程序后自动清除。 */
   globalData: {
-    adminKey: "",
+    /** 服务端签发的商家会话令牌。 */
+    merchantSessionToken: "",
+    /** 当前商家的公开账号信息。 */
+    merchantAccount: null,
   },
 
   /** 小程序启动时初始化指定 CloudBase 环境和只读本机缓存。 */

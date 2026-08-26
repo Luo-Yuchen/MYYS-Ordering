@@ -386,6 +386,21 @@
   color: var(--sage-dark);
 }
 
+/* 商家数据库账号登录卡片。 */
+.merchant-auth-card {
+  margin-top: 28rpx;
+}
+
+/* 首次改密与登录结果提示。 */
+.auth-warning,
+.auth-message {
+  margin-top: 20rpx;
+}
+
+.auth-warning {
+  color: #8c4f3d;
+}
+
 .reset-button {
   width: 100%;
   margin-top: 30rpx;

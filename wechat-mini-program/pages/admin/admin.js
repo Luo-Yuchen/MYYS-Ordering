@@ -12,8 +12,11 @@ const {
   saveSettings,
 } = require("../../utils/store");
 const {
+  changeMerchantPassword,
   getAdminOrders,
   getRemoteStore,
+  loginMerchant,
+  logoutMerchant,
   saveRemotePaymentMethods,
   saveRemoteProduct,
   updateRemoteOrder,
@@ -63,20 +66,31 @@ Page({
     editingPaymentMethodId: "",
     /** 当前收款方式表单草稿。 */
     paymentDraft: {},
-    /** 云端收款设置使用的管理口令。 */
-    adminKey: "",
+    /** 商家登录用户名。 */
+    merchantUsername: "admin",
+    /** 商家登录或首次改密时填写的当前密码。 */
+    merchantPassword: "",
+    /** 商家首次登录后填写的新密码。 */
+    merchantNewPassword: "",
+    /** 服务端签发的商家会话令牌。 */
+    merchantSessionToken: "",
+    /** 当前商家的公开账号信息。 */
+    merchantAccount: null,
     /** 收款设置同步或保存提示。 */
     paymentMessage: "",
     /** 是否正在读取或同步云端收款设置。 */
     isSyncingPayments: false,
   },
 
-  /** 页面显示时先读取缓存；已有管理口令时立即刷新 CloudBase 云端数据。 */
+  /** 页面显示时先读取缓存；已有商家会话时立即刷新 CloudBase 云端数据。 */
   onShow() {
-    const adminKey = getApp().globalData.adminKey || "";
-    this.setData({ adminKey });
+    const merchantSessionToken = getApp().globalData.merchantSessionToken || "";
+    const merchantAccount = getApp().globalData.merchantAccount || null;
+    this.setData({ merchantSessionToken, merchantAccount });
     this.refreshAdminData();
-    if (adminKey) void this.loadCloudData(adminKey);
+    if (merchantSessionToken && merchantAccount && !merchantAccount.mustChangePassword) {
+      void this.loadCloudData(merchantSessionToken);
+    }
   },
 
   /** 将本地数据转换为商家端展示结构和经营汇总。 */
@@ -188,13 +202,13 @@ Page({
   async changeOrderStatus(event) {
     const orderId = event.currentTarget.dataset.id;
     const status = STATUS_OPTIONS[Number(event.detail.value)];
-    const adminKey = this.data.adminKey.trim();
-    if (!adminKey) {
+    const merchantSessionToken = this.data.merchantSessionToken.trim();
+    if (!merchantSessionToken) {
       wx.showToast({ title: "请先登录云端商家端", icon: "none" });
       return;
     }
     try {
-      await updateRemoteOrder(orderId, { status }, adminKey);
+      await updateRemoteOrder(orderId, { status }, merchantSessionToken);
       const orders = getOrders().map((order) => (order.id === orderId ? { ...order, status } : order));
       saveOrders(orders);
       this.refreshAdminData();
@@ -208,13 +222,13 @@ Page({
   async changeDeliveryStatus(event) {
     const orderId = event.currentTarget.dataset.id;
     const deliveryStatus = DELIVERY_STATUS_OPTIONS[Number(event.detail.value)];
-    const adminKey = this.data.adminKey.trim();
-    if (!adminKey) {
+    const merchantSessionToken = this.data.merchantSessionToken.trim();
+    if (!merchantSessionToken) {
       wx.showToast({ title: "请先登录云端商家端", icon: "none" });
       return;
     }
     try {
-      await updateRemoteOrder(orderId, { deliveryStatus }, adminKey);
+      await updateRemoteOrder(orderId, { deliveryStatus }, merchantSessionToken);
       const orders = getOrders().map((order) => (
         order.id === orderId
           ? { ...order, deliveryStatus, status: deliveryStatus === "delivered" ? "completed" : order.status }
@@ -232,13 +246,13 @@ Page({
   async updatePaymentStatus(event) {
     const orderId = event.currentTarget.dataset.id;
     const paymentStatus = event.currentTarget.dataset.status;
-    const adminKey = this.data.adminKey.trim();
-    if (!adminKey) {
+    const merchantSessionToken = this.data.merchantSessionToken.trim();
+    if (!merchantSessionToken) {
       wx.showToast({ title: "请先登录云端商家端", icon: "none" });
       return;
     }
     try {
-      await updateRemoteOrder(orderId, { paymentStatus }, adminKey);
+      await updateRemoteOrder(orderId, { paymentStatus }, merchantSessionToken);
       saveOrders(getOrders().map((order) => order.id === orderId ? { ...order, paymentStatus } : order));
       this.refreshAdminData();
       wx.showToast({ title: paymentStatus === "confirmed" ? "已确认收款" : "已驳回付款信息", icon: "success" });
@@ -251,14 +265,14 @@ Page({
   async toggleProductAvailability(event) {
     const productId = event.currentTarget.dataset.id;
     const available = event.detail.value;
-    const adminKey = this.data.adminKey.trim();
+    const merchantSessionToken = this.data.merchantSessionToken.trim();
     const product = getProducts().find((item) => item.id === productId);
-    if (!adminKey || !product) {
+    if (!merchantSessionToken || !product) {
       wx.showToast({ title: "请先登录云端商家端", icon: "none" });
       return;
     }
     try {
-      const result = await saveRemoteProduct({ ...product, available, imageFileId: product.imageFileId || "" }, adminKey);
+      const result = await saveRemoteProduct({ ...product, available, imageFileId: product.imageFileId || "" }, merchantSessionToken);
       const products = getProducts().map((item) => item.id === productId
         ? { ...result.product, imagePath: result.product.imageUrl || "" }
         : item);
@@ -286,35 +300,104 @@ Page({
     wx.navigateTo({ url: "/pages/store-edit/store-edit" });
   },
 
-  /** 更新收款设置使用的管理口令。 */
-  updateAdminKey(event) {
-    this.setData({ adminKey: event.detail.value });
+  /** 更新商家登录用户名。 */
+  updateMerchantUsername(event) {
+    this.setData({ merchantUsername: event.detail.value });
   },
 
-  /** 使用管理口令登录并读取 CloudBase 全部经营数据。 */
-  async loadCloudPaymentMethods() {
-    const adminKey = this.data.adminKey.trim();
-    if (!adminKey) {
-      wx.showToast({ title: "请先输入管理口令", icon: "none" });
+  /** 更新商家登录或改密时使用的当前密码。 */
+  updateMerchantPassword(event) {
+    this.setData({ merchantPassword: event.detail.value });
+  },
+
+  /** 更新商家首次登录后设置的新密码。 */
+  updateMerchantNewPassword(event) {
+    this.setData({ merchantNewPassword: event.detail.value });
+  },
+
+  /** 使用数据库中的商家用户名和密码登录。 */
+  async loginMerchant() {
+    const merchantUsername = this.data.merchantUsername.trim().toLowerCase();
+    const merchantPassword = this.data.merchantPassword;
+    if (!merchantUsername || !merchantPassword) {
+      wx.showToast({ title: "请输入用户名和密码", icon: "none" });
       return;
     }
     this.setData({ isSyncingPayments: true, paymentMessage: "" });
     try {
-      getApp().globalData.adminKey = adminKey;
-      await this.loadCloudData(adminKey);
-      this.setData({ paymentMessage: "已登录 CloudBase 云端商家端" });
+      const result = await loginMerchant(merchantUsername, merchantPassword);
+      getApp().globalData.merchantSessionToken = result.merchantSessionToken;
+      getApp().globalData.merchantAccount = result.merchant;
+      this.setData({
+        merchantSessionToken: result.merchantSessionToken,
+        merchantAccount: result.merchant,
+        paymentMessage: result.merchant.mustChangePassword ? "请先修改初始密码" : "已登录 CloudBase PG 商家端",
+      });
+      if (!result.merchant.mustChangePassword) {
+        await this.loadCloudData(result.merchantSessionToken);
+        this.setData({ merchantPassword: "" });
+      }
     } catch (error) {
-      this.setData({ paymentMessage: error.message || "云端收款设置读取失败" });
+      this.setData({ paymentMessage: error.message || "商家登录失败" });
     } finally {
       this.setData({ isSyncingPayments: false });
     }
   },
 
+  /** 首次登录后修改数据库密码，并清除已撤销的旧会话。 */
+  async changeMerchantPassword() {
+    const merchantSessionToken = this.data.merchantSessionToken;
+    const currentPassword = this.data.merchantPassword;
+    const newPassword = this.data.merchantNewPassword;
+    if (!merchantSessionToken || !currentPassword || newPassword.length < 10) {
+      wx.showToast({ title: "新密码至少需要10位", icon: "none" });
+      return;
+    }
+    this.setData({ isSyncingPayments: true, paymentMessage: "" });
+    try {
+      await changeMerchantPassword(merchantSessionToken, currentPassword, newPassword);
+      getApp().globalData.merchantSessionToken = "";
+      getApp().globalData.merchantAccount = null;
+      this.setData({
+        merchantSessionToken: "",
+        merchantAccount: null,
+        merchantPassword: "",
+        merchantNewPassword: "",
+        paymentMessage: "密码已修改，请使用新密码重新登录",
+      });
+    } catch (error) {
+      this.setData({ paymentMessage: error.message || "密码修改失败" });
+    } finally {
+      this.setData({ isSyncingPayments: false });
+    }
+  },
+
+  /** 主动撤销商家会话并清空小程序进程内的登录状态。 */
+  async logoutMerchant() {
+    const merchantSessionToken = this.data.merchantSessionToken;
+    if (merchantSessionToken) {
+      try {
+        await logoutMerchant(merchantSessionToken);
+      } catch (error) {
+        // 退出界面不依赖网络成功；服务端会话仍会自动到期。
+      }
+    }
+    getApp().globalData.merchantSessionToken = "";
+    getApp().globalData.merchantAccount = null;
+    this.setData({
+      merchantSessionToken: "",
+      merchantAccount: null,
+      merchantPassword: "",
+      merchantNewPassword: "",
+      paymentMessage: "已退出商家端",
+    });
+  },
+
   /** 读取 CloudBase 商品、订单、店铺装修和全部收款方式。 */
-  async loadCloudData(adminKey) {
+  async loadCloudData(merchantSessionToken) {
     const [storeResult, orderResult] = await Promise.all([
-      getRemoteStore(adminKey),
-      getAdminOrders(adminKey),
+      getRemoteStore(),
+      getAdminOrders(merchantSessionToken),
     ]);
     const products = storeResult.products.map((product) => ({
       ...product,
@@ -428,16 +511,16 @@ Page({
     });
   },
 
-  /** 用管理口令将本机完整收款方式列表覆盖同步到云端。 */
+  /** 用商家会话将本机完整收款方式列表覆盖同步到云端。 */
   async syncPaymentMethods() {
-    const adminKey = this.data.adminKey.trim();
-    if (!adminKey) {
-      wx.showToast({ title: "请先输入管理口令", icon: "none" });
+    const merchantSessionToken = this.data.merchantSessionToken.trim();
+    if (!merchantSessionToken) {
+      wx.showToast({ title: "请先登录商家账号", icon: "none" });
       return;
     }
     this.setData({ isSyncingPayments: true, paymentMessage: "" });
     try {
-      const result = await saveRemotePaymentMethods(getPaymentMethods(), adminKey);
+      const result = await saveRemotePaymentMethods(getPaymentMethods(), merchantSessionToken);
       savePaymentMethods(result.paymentMethods || []);
       this.refreshAdminData();
       this.setData({ paymentMessage: "已同步到网页版和小程序顾客端" });
@@ -457,8 +540,8 @@ Page({
       success: (result) => {
         if (!result.confirm) return;
         resetDemoData();
-        const adminKey = this.data.adminKey.trim();
-        if (adminKey) void this.loadCloudData(adminKey);
+        const merchantSessionToken = this.data.merchantSessionToken.trim();
+        if (merchantSessionToken) void this.loadCloudData(merchantSessionToken);
         else this.refreshAdminData();
         wx.showToast({ title: "已刷新缓存", icon: "success" });
       },

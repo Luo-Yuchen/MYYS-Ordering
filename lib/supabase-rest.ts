@@ -47,18 +47,6 @@ export async function supabaseRequest<T>(path: string, options: SupabaseRequestO
   return response.json() as Promise<T>;
 }
 
-/** 使用固定时长比较管理口令，降低通过响应时长猜测口令的风险。 */
-export function isAdminKeyValid(value: string | null) {
-  const expected = process.env.ADMIN_ACCESS_KEY ?? "";
-  if (!value || !expected || value.length !== expected.length) return false;
-
-  let difference = 0;
-  for (let index = 0; index < expected.length; index += 1) {
-    difference |= value.charCodeAt(index) ^ expected.charCodeAt(index);
-  }
-  return difference === 0;
-}
-
 /** 将服务端异常转换为不包含密钥和数据库细节的公开错误。 */
 export function getPublicServerError(error: unknown) {
   if (error instanceof Error && error.message === "SUPABASE_NOT_CONFIGURED") {

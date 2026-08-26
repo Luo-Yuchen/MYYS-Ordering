@@ -1,4 +1,4 @@
-import { getPublicServerError, isAdminKeyValid, supabaseRequest } from "../../../lib/supabase-rest";
+import { getPublicServerError, supabaseRequest } from "../../../lib/supabase-rest";
 
 /** 第一版允许配送的 3km 内区域。 */
 const DELIVERY_AREAS = ["幸福小区", "阳光花园", "麦香公寓", "邻里写字楼"];
@@ -96,27 +96,22 @@ function mapOrder(row: Record<string, unknown>) {
   };
 }
 
-/** 查询顾客自己的订单，或在管理口令通过时查询全部订单。 */
+/** 旧兼容路由仅允许顾客凭随机订单令牌查询自己的订单。 */
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const providedAdminKey = request.headers.get("x-admin-key");
-    const isAdmin = isAdminKeyValid(providedAdminKey);
-    if (providedAdminKey && !isAdmin) {
-      return Response.json({ message: "商家管理口令错误" }, { status: 403 });
-    }
     const tokens = (url.searchParams.get("tokens") ?? "")
       .split(",")
       .map((token) => token.trim())
       .filter((token) => /^[a-f0-9]{48}$/.test(token))
       .slice(0, 30);
 
-    if (!isAdmin && tokens.length === 0) {
+    if (tokens.length === 0) {
       return Response.json({ orders: [] });
     }
 
     // 顾客只能凭每笔订单的随机访问令牌读取自己的记录。
-    const filter = isAdmin ? "" : "&access_token=in.(" + tokens.join(",") + ")";
+    const filter = "&access_token=in.(" + tokens.join(",") + ")";
     const rows = await supabaseRequest<Record<string, unknown>[]>(
       "orders?select=*,order_items(*)&order=created_at.desc" + filter,
     );

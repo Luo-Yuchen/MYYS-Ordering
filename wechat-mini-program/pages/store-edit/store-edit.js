@@ -45,8 +45,8 @@ Page({
     this.setData({ isProcessingImage: true });
     try {
       const heroBackgroundPath = await chooseAndSaveImage();
-      const adminKey = getApp().globalData.adminKey || "";
-      if (!adminKey) throw new Error("请先登录云端商家端");
+      const merchantSessionToken = getApp().globalData.merchantSessionToken || "";
+      if (!merchantSessionToken) throw new Error("请先登录云端商家端");
       const heroBackgroundFileId = await uploadRemoteImage(heroBackgroundPath, "store");
       this.setData({ heroBackgroundPath, heroBackgroundFileId });
     } catch (error) {
@@ -92,13 +92,13 @@ Page({
       /** 主视觉背景在 CloudBase 云存储中的文件编号。 */
       heroBackgroundFileId: this.data.heroBackgroundFileId,
     };
-    const adminKey = getApp().globalData.adminKey || "";
-    if (!adminKey) {
+    const merchantSessionToken = getApp().globalData.merchantSessionToken || "";
+    if (!merchantSessionToken) {
       wx.showToast({ title: "请先登录云端商家端", icon: "none" });
       return;
     }
     try {
-      const result = await saveRemoteStoreSettings(settings, adminKey);
+      const result = await saveRemoteStoreSettings(settings, merchantSessionToken);
       saveSettings({ ...result.settings, heroBackgroundPath: result.settings.heroBackgroundImage || this.data.heroBackgroundPath });
       wx.showToast({ title: "店铺装修已同步云端", icon: "success" });
       setTimeout(() => wx.navigateBack(), 450);

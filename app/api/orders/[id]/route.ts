@@ -1,4 +1,4 @@
-import { getPublicServerError, isAdminKeyValid, supabaseRequest } from "../../../../lib/supabase-rest";
+import { getPublicServerError, supabaseRequest } from "../../../../lib/supabase-rest";
 
 /** 订单更新请求。 */
 type UpdateOrderBody = {
@@ -19,23 +19,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await request.json() as UpdateOrderBody;
-    const isAdmin = isAdminKeyValid(request.headers.get("x-admin-key"));
     const accessToken = request.headers.get("x-order-token") ?? "";
     const patch: Record<string, string> = {};
 
-    if (isAdmin) {
-      if (body.status && ["pending", "preparing", "ready", "completed", "cancelled"].includes(body.status)) {
-        patch.status = body.status;
-      }
-      if (body.deliveryStatus && ["waiting", "delivering", "delivered"].includes(body.deliveryStatus)) {
-        patch.delivery_status = body.deliveryStatus;
-        // 配送完成后同步完成订单，避免出现“已送达但未完成”的矛盾状态。
-        if (body.deliveryStatus === "delivered") patch.status = "completed";
-      }
-      if (body.paymentStatus && ["confirmed", "rejected"].includes(body.paymentStatus)) {
-        patch.payment_status = body.paymentStatus;
-      }
-    } else if (/^[a-f0-9]{48}$/.test(accessToken) && body.paymentStatus === "submitted") {
+    if (/^[a-f0-9]{48}$/.test(accessToken) && body.paymentStatus === "submitted") {
       const paymentMethodId = (body.paymentMethodId ?? "").trim();
       if (paymentMethodId) {
         if (!/^[a-zA-Z0-9_-]{1,64}$/.test(paymentMethodId)) {
@@ -55,13 +42,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     } else {
       return Response.json({ message: "无权更新该订单" }, { status: 403 });
     }
-
     if (Object.keys(patch).length === 0) {
       return Response.json({ message: "没有可更新的内容" }, { status: 400 });
     }
 
-    // 非管理员更新时附带随机令牌条件，防止通过猜订单号修改他人订单。
-    const tokenFilter = isAdmin ? "" : "&access_token=eq." + accessToken;
+    // 顾客更新时附带随机令牌条件，防止通过猜订单号修改他人订单。
+    const tokenFilter = "&access_token=eq." + accessToken;
     const rows = await supabaseRequest<Record<string, unknown>[]>(
       "orders?id=eq." + encodeURIComponent(id) + tokenFilter,
       { method: "PATCH", body: patch, prefer: "return=representation" },

@@ -21,14 +21,29 @@ function callOrderingFunction(action, data = {}) {
   });
 }
 
-/** 读取两端共用的商品、店铺设置和收款码配置。 */
-function getRemoteStore(adminKey = "") {
-  return callOrderingFunction("getStore", { adminKey });
+/** 使用数据库中的商家用户名和密码登录。 */
+function loginMerchant(username, password) {
+  return callOrderingFunction("merchantLogin", { username, password });
 }
 
-/** 使用管理口令覆盖保存两端共用的完整收款方式列表。 */
-function saveRemotePaymentMethods(paymentMethods, adminKey) {
-  return callOrderingFunction("savePaymentMethods", { paymentMethods, adminKey });
+/** 修改商家数据库密码，成功后需要重新登录。 */
+function changeMerchantPassword(merchantSessionToken, currentPassword, newPassword) {
+  return callOrderingFunction("changeMerchantPassword", { merchantSessionToken, currentPassword, newPassword });
+}
+
+/** 主动撤销当前商家会话。 */
+function logoutMerchant(merchantSessionToken) {
+  return callOrderingFunction("merchantLogout", { merchantSessionToken });
+}
+
+/** 读取两端共用的公开商品、店铺设置和收款码配置。 */
+function getRemoteStore() {
+  return callOrderingFunction("getStore");
+}
+
+/** 使用商家会话覆盖保存两端共用的完整收款方式列表。 */
+function saveRemotePaymentMethods(paymentMethods, merchantSessionToken) {
+  return callOrderingFunction("savePaymentMethods", { paymentMethods, merchantSessionToken });
 }
 
 /** 根据当前设备保存的订单令牌读取顾客订单。 */
@@ -36,9 +51,9 @@ function getRemoteOrders(tokens) {
   return callOrderingFunction("getOrders", { tokens });
 }
 
-/** 使用管理口令读取商家有权查看的全部订单。 */
-function getAdminOrders(adminKey) {
-  return callOrderingFunction("getOrders", { adminKey });
+/** 使用商家会话读取商家有权查看的全部订单。 */
+function getAdminOrders(merchantSessionToken) {
+  return callOrderingFunction("getOrders", { merchantSessionToken });
 }
 
 /** 提交新订单，由 CloudBase 在事务中校验价格、库存和配送费。 */
@@ -47,8 +62,8 @@ function createRemoteOrder(data) {
 }
 
 /** 更新订单制作状态、配送进度或付款核验状态。 */
-function updateRemoteOrder(orderId, data, adminKey = "", accessToken = "") {
-  return callOrderingFunction("updateOrder", { orderId, ...data, adminKey, accessToken });
+function updateRemoteOrder(orderId, data, merchantSessionToken = "", accessToken = "") {
+  return callOrderingFunction("updateOrder", { orderId, ...data, merchantSessionToken, accessToken });
 }
 
 /** 顾客扫码后提交付款待核验状态。 */
@@ -56,14 +71,14 @@ function submitRemotePayment(orderId, accessToken, paymentReference, paymentMeth
   return updateRemoteOrder(orderId, { paymentStatus: "submitted", paymentReference, paymentMethodId }, "", accessToken);
 }
 
-/** 使用管理口令新增或更新一个云端商品。 */
-function saveRemoteProduct(product, adminKey) {
-  return callOrderingFunction("saveProduct", { product, adminKey });
+/** 使用商家会话新增或更新一个云端商品。 */
+function saveRemoteProduct(product, merchantSessionToken) {
+  return callOrderingFunction("saveProduct", { product, merchantSessionToken });
 }
 
-/** 使用管理口令保存云端店铺装修设置。 */
-function saveRemoteStoreSettings(settings, adminKey) {
-  return callOrderingFunction("saveStoreSettings", { settings, adminKey });
+/** 使用商家会话保存云端店铺装修设置。 */
+function saveRemoteStoreSettings(settings, merchantSessionToken) {
+  return callOrderingFunction("saveStoreSettings", { settings, merchantSessionToken });
 }
 
 /** 将小程序临时图片上传到当前 CloudBase 环境的云存储。 */
@@ -87,13 +102,16 @@ function uploadRemoteImage(tempFilePath, scene) {
 
 module.exports = {
   callOrderingFunction,
+  changeMerchantPassword,
   createRemoteOrder,
   getAdminOrders,
+  loginMerchant,
   getRemoteOrders,
   getRemoteStore,
   saveRemotePaymentMethods,
   saveRemoteProduct,
   saveRemoteStoreSettings,
+  logoutMerchant,
   submitRemotePayment,
   updateRemoteOrder,
   uploadRemoteImage,
