@@ -91,7 +91,7 @@ test("包含下单、接单、收款和默认复古怀旧风规则", async () =>
 });
 
 
-test("两端通过 CloudBase 云函数遵循自提配送业务规则", async () => {
+test("网页 HTTP 路由与小程序云函数遵循自提配送业务规则", async () => {
   const [page, webClient, cloudFunction, miniConfig, miniApi, miniCustomer, miniCustomerView, miniAdmin, pagesWorkflow] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/cloudbase-client.ts", import.meta.url), "utf8"),
@@ -105,9 +105,10 @@ test("两端通过 CloudBase 云函数遵循自提配送业务规则", async () 
   ]);
 
   assert.match(webClient, /bun-order-d9gn0mjn09021bfbe/);
-  assert.match(webClient, /CLOUDBASE_PUBLISHABLE_KEY/);
-  assert.match(webClient, /accessKey: CLOUDBASE_PUBLISHABLE_KEY/);
-  assert.doesNotMatch(webClient, /signInAnonymously|getLoginState/);
+  assert.match(webClient, /ap-shanghai\.app\.tcloudbase\.com\/ordering-api/);
+  assert.match(webClient, /fetch\(CLOUDBASE_ORDERING_API_URL/);
+  assert.match(webClient, /"Content-Type": "application\/json"/);
+  assert.doesNotMatch(webClient, /CLOUDBASE_PUBLISHABLE_KEY|accessKey|signInAnonymously|getLoginState/);
   assert.match(page, /callOrderingFunction/);
   assert.match(page, /const DELIVERY_MINIMUM = 15/);
   assert.match(page, /const FREE_DELIVERY_THRESHOLD = 30/);

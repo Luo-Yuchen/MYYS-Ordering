@@ -18,7 +18,7 @@
 
 ## 二、商家账号
 
-初始商家用户名为 admin。初始密码只用于第一次登录，账号带有首次改密标记；网页端和小程序端会要求先设置至少 10 位的新密码。
+初始商家用户名为 admin。当前 admin 账号已完成初始化，可使用数据库中配置的管理员密码直接访问商家功能；后续新建账号仍可启用首次改密策略。
 
 密码不以明文保存。云函数使用 scrypt 和独立随机盐校验密码，登录成功后签发 12 小时会话，数据库仅保存会话令牌的 SHA-256 摘要。修改密码会撤销该账号的全部旧会话。
 
@@ -27,17 +27,17 @@
 1. 函数名称保持 ordering-api，运行时使用 Node.js 18。
 2. 在函数服务端环境变量中配置 CLOUDBASE_ENV_ID=bun-order-d9gn0mjn09021bfbe。
 3. 创建 CloudBase 服务 API Key，并仅写入函数服务端环境变量 CLOUDBASE_APIKEY。
-4. 将 ordering-api 调用权限设置为允许 anonymous 和 unauthenticated；商家管理和顾客订单权限继续由函数内部会话令牌校验。
+4. 在 HTTP 访问服务创建 `/ordering-api` → `ordering-api`（SCF）路由，关闭路由鉴权；商家管理和顾客订单权限继续由函数内部会话令牌校验。
 5. 禁止把 CLOUDBASE_APIKEY、商家密码、密码摘要或会话令牌提交到 Git。
 6. 部署 cloudfunctions/ordering-api 并由云端安装依赖。
 
-网页版只通过 CloudBase Web SDK 调用云函数，不直接持有 PG 服务密钥。PG 表已启用行级安全限制，业务写入通过云函数和受限事务函数完成。
+网页版只通过 CloudBase HTTPS 路由调用云函数，不持有 Publishable Key 或 PG 服务密钥。PG 表已启用行级安全限制，业务写入通过云函数和受限事务函数完成。
 
-## 四、网页版 Publishable Key
+## 四、网页版 HTTPS 路由
 
-GitHub Pages 使用 CloudBase Web SDK v3 的 Publishable Key 调用云函数。Publishable Key 可以公开放在浏览器端，仅提供匿名用户权限；服务端 API Key 仍只允许保存在云函数环境变量中。
+GitHub Pages 通过 CloudBase HTTP 访问服务的 `/ordering-api` HTTPS 路由调用云函数。路由关闭网关鉴权，服务端 API Key 仍只允许保存在云函数环境变量中。
 
-Publishable Key 只能调用公开的点单云函数。查询全部订单、修改订单、商品、店铺、收款设置和上传商家图片仍需数据库商家会话。
+公开路由只指向 `ordering-api`。查询全部订单、修改订单、商品、店铺、收款设置和上传商家图片仍需数据库商家会话；顾客只能执行公开点单和持令牌查询。
 
 ## 五、小程序暂停说明
 

@@ -10,14 +10,14 @@
 - 订单区分待接单、制作中、待取餐、配送中、已完成和已取消等状态。
 - 网页端默认使用复古怀旧风界面。
 - 商品、订单和收款设置统一使用腾讯云 CloudBase 数据库与云存储。
-- 商家端使用 CloudBase PG 数据库中的用户名和密码登录，首次登录强制改密。
+- 商家端使用 CloudBase PG 数据库中的用户名和密码登录，admin 账号已完成初始化。
 
 ## 技术架构
 
 ```text
 GitHub Pages H5
        ↓
-CloudBase Web SDK（Publishable Key）
+CloudBase HTTPS 路由 /ordering-api
        ↓
 ordering-api 云函数
        ↓
@@ -62,7 +62,7 @@ pnpm lint
 ## 部署
 
 1. 按照 [CLOUDBASE_SETUP.md](./CLOUDBASE_SETUP.md) 应用 PostgreSQL 迁移并部署 `ordering-api` 云函数。
-2. 确认 CloudBase 已创建 Publishable Key，网页端仅使用其匿名权限调用公开云函数。
+2. 确认 CloudBase HTTP 访问服务已创建 `/ordering-api` → `ordering-api`（SCF）路由，并关闭该路由鉴权。
 3. GitHub `main` 分支更新后，仓库工作流会自动构建并发布网页版。
 4. 当前正式访问地址为 <https://luo-yuchen.github.io/MYYS-Ordering/>。
 
