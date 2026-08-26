@@ -1,5 +1,8 @@
 <view class="page-shell">
-  <view wx:if="{{serviceMessage}}" class="service-message">{{serviceMessage}}</view>
+  <view wx:if="{{serviceMessage}}" class="service-message">
+    <text class="service-message-text">{{serviceMessage}}</text>
+    <button class="service-retry-button" loading="{{isSyncingRemote}}" disabled="{{isSyncingRemote}}" bindtap="retryRemoteSync">重试</button>
+  </view>
   <view wx:if="{{activeView === 'home'}}" class="topbar">
     <view class="brand-block">
       <view class="brand-mark serif">{{settings.brandMark}}</view>

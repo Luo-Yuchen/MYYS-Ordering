@@ -1,5 +1,24 @@
 const { orderingFunctionName } = require("../config");
 
+/** 将 CloudBase 底层错误转换为适合顾客阅读的简短提示。 */
+function createCloudFunctionError(error) {
+  const errorCode = error && (error.errCode || error.code);
+  const rawMessage = error && error.errMsg ? String(error.errMsg) : "";
+  const isPermissionError = Number(errorCode) === -601034
+    || rawMessage.includes("-601034")
+    || rawMessage.includes("没有权限")
+    || rawMessage.toLowerCase().includes("permission");
+
+  // 权限错误不向页面透出调用编号、请求轨迹或平台内部说明。
+  if (isPermissionError) {
+    return new Error("云服务尚未完成小程序授权，当前显示本机缓存");
+  }
+  if (/timeout|timed out|network|网络/i.test(rawMessage)) {
+    return new Error("云服务连接超时，当前显示本机缓存，请稍后重试");
+  }
+  return new Error("云服务暂时不可用，当前显示本机缓存，请稍后重试");
+}
+
 /** 调用 CloudBase 点单云函数并统一提取业务错误。 */
 function callOrderingFunction(action, data = {}) {
   return new Promise((resolve, reject) => {
@@ -15,7 +34,10 @@ function callOrderingFunction(action, data = {}) {
         reject(new Error(result.message || "CloudBase 店铺服务暂时不可用"));
       },
       fail(error) {
-        reject(new Error(error.errMsg || "CloudBase 网络连接失败"));
+        const friendlyError = createCloudFunctionError(error);
+        // 开发者控制台仅记录动作和错误码，不记录调用轨迹或敏感上下文。
+        console.warn("ordering-api 调用失败", { action, errorCode: error && (error.errCode || error.code) });
+        reject(friendlyError);
       },
     });
   });
@@ -93,8 +115,9 @@ function uploadRemoteImage(tempFilePath, scene) {
       success(result) {
         resolve(result.fileID);
       },
-      fail(error) {
-        reject(new Error(error.errMsg || "图片上传到 CloudBase 失败"));
+      fail() {
+        // 图片上传失败时不向商家页面透出平台调用轨迹。
+        reject(new Error("图片上传失败，请检查云服务授权或网络后重试"));
       },
     });
   });

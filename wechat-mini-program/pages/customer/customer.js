@@ -97,6 +97,8 @@ Page({
     isSubmittingOrder: false,
     /** 共享服务不可用时的提示。 */
     serviceMessage: "",
+    /** 是否正在重新连接 CloudBase 共享服务。 */
+    isSyncingRemote: false,
     /** 配送方式。 */
     fulfillment: "pickup",
     /** 顾客姓名。 */
@@ -176,8 +178,15 @@ Page({
     await this.syncRemoteData();
   },
 
+  /** 顾客点击提示条时重新拉取 CloudBase 云端数据。 */
+  async retryRemoteSync() {
+    await this.syncRemoteData();
+  },
+
   /** 从共享服务同步商品、店铺设置、收款码和当前设备订单。 */
   async syncRemoteData() {
+    if (this.data.isSyncingRemote) return;
+    this.setData({ isSyncingRemote: true });
     try {
       const localOrders = getOrders();
       const tokens = localOrders.map((order) => order.accessToken).filter(Boolean);
@@ -226,6 +235,8 @@ Page({
       this.refreshPageData();
     } catch (error) {
       this.setData({ serviceMessage: error.message || "共享服务暂时不可用，当前显示本机缓存" });
+    } finally {
+      this.setData({ isSyncingRemote: false });
     }
   },
 

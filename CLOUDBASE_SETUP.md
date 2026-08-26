@@ -27,8 +27,9 @@
 1. 函数名称保持 ordering-api，运行时使用 Node.js 18。
 2. 在函数服务端环境变量中配置 CLOUDBASE_ENV_ID=bun-order-d9gn0mjn09021bfbe。
 3. 创建 CloudBase 服务 API Key，并仅写入函数服务端环境变量 CLOUDBASE_APIKEY。
-4. 禁止把 CLOUDBASE_APIKEY、商家密码、密码摘要或会话令牌提交到 Git。
-5. 部署 cloudfunctions/ordering-api 并由云端安装依赖。
+4. 将 ordering-api 调用权限设置为允许 anonymous 和 unauthenticated；商家管理和顾客订单权限继续由函数内部会话令牌校验。
+5. 禁止把 CLOUDBASE_APIKEY、商家密码、密码摘要或会话令牌提交到 Git。
+6. 部署 cloudfunctions/ordering-api 并由云端安装依赖。
 
 网页版和小程序只调用云函数，不直接持有 PG 服务密钥。PG 表已启用行级安全限制，业务写入通过云函数和受限事务函数完成。
 
@@ -40,10 +41,11 @@ GitHub Pages 使用 CloudBase Web SDK 调用云函数，需要在 CloudBase 控�
 
 ## 五、小程序配置
 
-1. 使用微信开发者工具打开项目根目录的 project.config.json。
-2. 确认小程序 AppID 有权访问环境 bun-order-d9gn0mjn09021bfbe。
-3. 重新编译小程序；业务数据通过 wx.cloud.callFunction 访问，图片通过 wx.cloud.uploadFile 上传。
-4. 在真机上验证商家登录、首次改密、接单、收款设置和退出登录。
+1. 使用微信开发者工具打开项目根目录的 project.config.json，确认 AppID 为 wx2faf6bbe8487f0e4。
+2. 打开“云开发 -> 设置 -> 环境设置 -> 管理我的环境 -> 使用已有腾讯云环境”，导入 bun-order-d9gn0mjn09021bfbe。
+3. 确认环境列表已经显示该环境后重新编译；业务数据通过 wx.cloud.callFunction 访问，图片通过 wx.cloud.uploadFile 上传。
+4. 若出现 -601034，先检查环境是否已导入以及 ordering-api 调用权限是否为空，不要把完整 errMsg 或 trace 展示给顾客。
+5. 在真机上验证商家登录、首次改密、接单、收款设置和退出登录。
 
 ## 六、GitHub Pages
 

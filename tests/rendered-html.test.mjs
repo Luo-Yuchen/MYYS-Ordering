@@ -124,8 +124,12 @@ test("两端通过 CloudBase 云函数遵循自提配送业务规则", async () 
   assert.match(miniApi, /wx.cloud.uploadFile/);
   assert.match(miniApi, /merchantLogin/);
   assert.match(miniApi, /changeMerchantPassword/);
+  assert.match(miniApi, /-601034/);
+  assert.doesNotMatch(miniApi, /new Error\(error\.errMsg/);
   assert.doesNotMatch(miniApi, /wx.request/);
   assert.match(miniCustomer, /DELIVERY_MINIMUM = 15/);
+  assert.match(miniCustomer, /retryRemoteSync/);
+  assert.match(miniCustomerView, /service-retry-button/);
   assert.match(miniCustomerView, /确认订单并显示收款码/);
   assert.match(miniAdmin, /updateRemoteOrder/);
   assert.match(pagesWorkflow, /actions\/deploy-pages@v4/);

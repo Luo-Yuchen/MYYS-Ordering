@@ -809,12 +809,36 @@
 
 /* 平板和横屏：商品自动多列，表单/列表不会被无意义地放大。 */
 .service-message {
-  padding: 18rpx 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 14rpx 22rpx;
   background: #fff4d8;
   color: #73551d;
   font-size: 22rpx;
   line-height: 1.5;
-  text-align: center;
+}
+
+.service-message-text {
+  flex: 1;
+}
+
+.service-retry-button {
+  flex: none;
+  min-width: 112rpx;
+  margin: 0;
+  padding: 0 20rpx;
+  border: 2rpx solid #8b4a22;
+  border-radius: 0;
+  background: transparent;
+  color: #8b4a22;
+  font-size: 22rpx;
+  line-height: 48rpx;
+}
+
+.service-retry-button::after {
+  border: 0;
 }
 
 .payment-status {
