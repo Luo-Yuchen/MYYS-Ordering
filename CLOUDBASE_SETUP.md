@@ -31,21 +31,19 @@
 5. 禁止把 CLOUDBASE_APIKEY、商家密码、密码摘要或会话令牌提交到 Git。
 6. 部署 cloudfunctions/ordering-api 并由云端安装依赖。
 
-网页版和小程序只调用云函数，不直接持有 PG 服务密钥。PG 表已启用行级安全限制，业务写入通过云函数和受限事务函数完成。
+网页版只通过 CloudBase Web SDK 调用云函数，不直接持有 PG 服务密钥。PG 表已启用行级安全限制，业务写入通过云函数和受限事务函数完成。
 
-## 四、网页版匿名登录和安全域名
+## 四、网页版 Publishable Key
 
-GitHub Pages 使用 CloudBase Web SDK 调用云函数，需要在 CloudBase 控制台开启匿名登录，并把 GitHub Pages 地址和正式域名 https://myys-ordering.com 加入 Web 安全域名。
+GitHub Pages 使用 CloudBase Web SDK v3 的 Publishable Key 调用云函数。Publishable Key 可以公开放在浏览器端，仅提供匿名用户权限；服务端 API Key 仍只允许保存在云函数环境变量中。
 
-匿名身份只能调用公开的点单云函数。查询全部订单、修改订单、商品、店铺、收款设置和上传商家图片仍需数据库商家会话。
+Publishable Key 只能调用公开的点单云函数。查询全部订单、修改订单、商品、店铺、收款设置和上传商家图片仍需数据库商家会话。
 
-## 五、小程序配置
+## 五、小程序暂停说明
 
-1. 使用微信开发者工具打开项目根目录的 project.config.json，确认 AppID 为 wx2faf6bbe8487f0e4。
-2. 打开“云开发 -> 设置 -> 环境设置 -> 管理我的环境 -> 使用已有腾讯云环境”，导入 bun-order-d9gn0mjn09021bfbe。
-3. 确认环境列表已经显示该环境后重新编译；业务数据通过 wx.cloud.callFunction 访问，图片通过 wx.cloud.uploadFile 上传。
-4. 若出现 -601034，先检查环境是否已导入以及 ordering-api 调用权限是否为空，不要把完整 errMsg 或 trace 展示给顾客。
-5. 在真机上验证商家登录、首次改密、接单、收款设置和退出登录。
+当前正式入口仅使用 GitHub Pages H5，暂时不使用微信小程序云开发，也不需要在微信开发者工具中导入 CloudBase 环境。
+
+`wechat-mini-program` 目录继续保留作为备用源码，但不参与当前构建、部署和线上故障排查。未来恢复小程序时，需要重新核对 AppID、CloudBase 环境关联、云函数调用权限、合法域名和真机表现后再发布。
 
 ## 六、GitHub Pages
 
@@ -53,7 +51,7 @@ GitHub Pages 使用 CloudBase Web SDK 调用云函数，需要在 CloudBase 控�
 
 1. 在 GitHub 仓库 Settings -> Pages 中选择 GitHub Actions。
 2. 推送到 main 后等待部署工作流完成。
-3. 自定义域名使用 myys-ordering.com，DNS 生效后开启 Enforce HTTPS。
+3. 当前不使用自定义域名，正式地址为 `https://luo-yuchen.github.io/MYYS-Ordering/`。
 
 静态构建命令为 pnpm build:github-pages，输出目录为 dist-github-pages。
 

@@ -105,7 +105,9 @@ test("两端通过 CloudBase 云函数遵循自提配送业务规则", async () 
   ]);
 
   assert.match(webClient, /bun-order-d9gn0mjn09021bfbe/);
-  assert.match(webClient, /signInAnonymously/);
+  assert.match(webClient, /CLOUDBASE_PUBLISHABLE_KEY/);
+  assert.match(webClient, /accessKey: CLOUDBASE_PUBLISHABLE_KEY/);
+  assert.doesNotMatch(webClient, /signInAnonymously|getLoginState/);
   assert.match(page, /callOrderingFunction/);
   assert.match(page, /const DELIVERY_MINIMUM = 15/);
   assert.match(page, /const FREE_DELIVERY_THRESHOLD = 30/);

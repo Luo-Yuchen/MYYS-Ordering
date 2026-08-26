@@ -1335,7 +1335,7 @@ export default function Home() {
       setSelectedPaymentMethodId((current) => result.paymentMethods.some((method) => method.id === current && method.enabled)
         ? current
         : result.paymentMethods.find((method) => method.enabled)?.id ?? "");
-      setPaymentSettingsMessage("收款设置已保存，并同步到网页版和小程序");
+      setPaymentSettingsMessage("收款设置已保存，并同步到网页版");
     } catch (error) {
       setPaymentSettingsMessage(error instanceof Error ? error.message : "收款设置保存失败");
     } finally {
@@ -2033,7 +2033,7 @@ export default function Home() {
               )}
 
               <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-[2rem] border border-stone-200 bg-white p-5">
-                <p className="text-sm text-stone-600">{merchantSessionToken ? "保存后同步到网页版与小程序" : "请先使用用户名和密码登录 CloudBase 商家端"}</p>
+                <p className="text-sm text-stone-600">{merchantSessionToken ? "保存后同步到网页版" : "请先使用用户名和密码登录 CloudBase 商家端"}</p>
                 <button type="button" onClick={() => void savePaymentMethods()} disabled={isSavingPaymentMethods} className="rounded-full bg-[#59694d] px-7 py-3 font-medium text-white disabled:cursor-wait disabled:opacity-60">{isSavingPaymentMethods ? "正在保存…" : "保存全部收款设置"}</button>
               </div>
             </section>
