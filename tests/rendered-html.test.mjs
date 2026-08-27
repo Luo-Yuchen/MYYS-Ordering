@@ -52,6 +52,12 @@ test("包含下单、接单、收款和默认复古怀旧风规则", async () =>
   assert.match(page, /收款设置/);
   assert.match(page, /paymentMethods/);
   assert.match(page, /配送到家/);
+  assert.match(page, /mobile-order-toolbar/);
+  assert.match(page, /mobile-category-rail/);
+  assert.match(page, /profile-details/);
+  assert.match(page, /manyouyisi-customer-profile-v1/);
+  assert.match(css, /mobile-menu-shell/);
+  assert.match(css, /checkout-profile-summary/);
   assert.match(page, /店铺接单台/);
   assert.match(page, /备货汇总/);
   assert.match(page, /商品管理/);

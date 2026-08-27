@@ -242,7 +242,19 @@ type MerchantLoginResponse = {
 };
 
 /** 顾客端页面标签。 */
-type CustomerView = "shop" | "cart" | "profile" | "orders";
+type CustomerView = "shop" | "cart" | "profile" | "profile-details" | "orders";
+
+/** 保存在当前设备中的顾客常用资料。 */
+type CustomerProfile = {
+  /** 顾客姓名或常用称呼。 */
+  name: string;
+  /** 顾客联系电话。 */
+  phone: string;
+  /** 默认配送区域。 */
+  deliveryArea: string;
+  /** 默认楼栋和门牌号。 */
+  doorNumber: string;
+};
 
 /** 商家端页面标签。 */
 type AdminView = "orders" | "production" | "products" | "payments" | "store";
@@ -650,12 +662,12 @@ function ProductCard({
           <BunIllustration tone={product.tone} />
         )}
       </div>
-      <div className="mt-5">
+      <div className="mt-5 product-copy">
         <p className="text-xs text-stone-600">{available ? `每日现蒸 · 余 ${product.stock} ${product.unit}` : "今日已售罄 · 明天再来"}</p>
         <h3 className="mt-1 font-serif text-xl md:text-2xl text-stone-800">{product.name}</h3>
         <p className="mt-1 text-sm text-stone-600">{product.description}</p>
       </div>
-      <div className="mt-5 flex items-center justify-between gap-4">
+      <div className="mt-5 flex items-center justify-between gap-4 product-buy-row">
         <div>
           <span className="font-serif text-2xl text-stone-800">{formatMoney(product.price)}</span>
           <span className="ml-1 text-xs text-stone-600">/ {product.unit}</span>
@@ -743,6 +755,25 @@ export default function Home() {
   const [isMerchantAuthenticating, setIsMerchantAuthenticating] = useState(false);
   /** 商家登录和首次改密的校验提示。 */
   const [merchantAuthMessage, setMerchantAuthMessage] = useState("");
+  /** 顾客资料二级页面的校验提示。 */
+  const [profileError, setProfileError] = useState("");
+
+  useEffect(() => {
+    // 从当前设备恢复常用联系人和地址，使结算页能够自动带入资料。
+    try {
+      const savedProfile = window.localStorage.getItem("manyouyisi-customer-profile-v1");
+      if (!savedProfile) return;
+      const profile = JSON.parse(savedProfile) as Partial<CustomerProfile>;
+      queueMicrotask(() => {
+        if (typeof profile.name === "string") setCustomerName(profile.name);
+        if (typeof profile.phone === "string") setPhone(profile.phone);
+        if (typeof profile.deliveryArea === "string") setDeliveryArea(profile.deliveryArea);
+        if (typeof profile.doorNumber === "string") setDoorNumber(profile.doorNumber);
+      });
+    } catch {
+      window.localStorage.removeItem("manyouyisi-customer-profile-v1");
+    }
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -1002,7 +1033,56 @@ export default function Home() {
   function navigateCustomer(view: CustomerView) {
     setCustomerView(view);
     setSuccessOrderId("");
+    setProfileError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** 校验并保存顾客常用联系人和默认配送地址。 */
+  function saveCustomerProfile() {
+    if (!customerName.trim()) {
+      setProfileError("请填写姓名或常用称呼");
+      return;
+    }
+    if (!/^1\d{10}$/.test(phone)) {
+      setProfileError("请填写正确的 11 位手机号");
+      return;
+    }
+    if ((deliveryArea && !doorNumber.trim()) || (!deliveryArea && doorNumber.trim())) {
+      setProfileError("配送区域和门牌号需要一起填写");
+      return;
+    }
+
+    // 资料仅保存在顾客当前设备，不会在未下单时上传到云端。
+    const profile: CustomerProfile = {
+      name: customerName.trim(),
+      phone,
+      deliveryArea,
+      doorNumber: doorNumber.trim(),
+    };
+    window.localStorage.setItem("manyouyisi-customer-profile-v1", JSON.stringify(profile));
+    setCustomerName(profile.name);
+    setDoorNumber(profile.doorNumber);
+    setProfileError("");
+    navigateCustomer("profile");
+  }
+
+  /** 放弃本次编辑并恢复最近一次保存的顾客常用资料。 */
+  function cancelCustomerProfileEdit() {
+    try {
+      const savedProfile = window.localStorage.getItem("manyouyisi-customer-profile-v1");
+      const profile = savedProfile ? JSON.parse(savedProfile) as Partial<CustomerProfile> : {};
+      setCustomerName(typeof profile.name === "string" ? profile.name : "");
+      setPhone(typeof profile.phone === "string" ? profile.phone : "");
+      setDeliveryArea(typeof profile.deliveryArea === "string" ? profile.deliveryArea : "");
+      setDoorNumber(typeof profile.doorNumber === "string" ? profile.doorNumber : "");
+    } catch {
+      window.localStorage.removeItem("manyouyisi-customer-profile-v1");
+      setCustomerName("");
+      setPhone("");
+      setDeliveryArea("");
+      setDoorNumber("");
+    }
+    navigateCustomer("profile");
   }
 
   /** 使用数据库会话加载商家有权查看的商品、订单、店铺装修和收款设置。 */
@@ -2136,6 +2216,21 @@ export default function Home() {
           <main className="pb-28">
             {customerView === "shop" ? (
               <>
+                <section className="mobile-order-toolbar" aria-label="移动端点单设置">
+                  <div className="mobile-fulfillment-tabs" aria-label="选择取餐方式">
+                    <button type="button" onClick={() => setFulfillment("pickup")} className={fulfillment === "pickup" ? "mobile-fulfillment-active" : ""}>自提</button>
+                    <button type="button" onClick={() => setFulfillment("delivery")} className={fulfillment === "delivery" ? "mobile-fulfillment-active" : ""}>外送</button>
+                  </div>
+                  <button type="button" onClick={() => navigateCustomer("profile-details")} className="mobile-store-row">
+                    <span className="mobile-location-mark" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 text-left">
+                      <strong>{fulfillment === "pickup" ? `${storeSettings.brandName}门店` : deliveryArea || "设置配送地址"}</strong>
+                      <small>{fulfillment === "pickup" ? "到店自提 · 预约免排队" : deliveryArea ? `${doorNumber || "请补充门牌号"} · 本店 3km 内` : "完善收货信息后自动带入订单"}</small>
+                    </span>
+                    <span className="mobile-store-chevron" aria-hidden="true">›</span>
+                  </button>
+                </section>
+
                 <section
                   className={`hero-section ${storeSettings.heroBackgroundImage ? "hero-section-custom-background" : ""}`}
                   style={storeSettings.heroBackgroundImage ? { backgroundImage: `url(${storeSettings.heroBackgroundImage})` } : undefined}
@@ -2178,8 +2273,8 @@ export default function Home() {
                   </div>
                 </section>
 
-                <section id="menu" className="mx-auto max-w-6xl px-5 py-12 md:px-12 md:py-16">
-                  <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+                <section id="menu" className="customer-menu-section mx-auto max-w-6xl px-5 py-12 md:px-12 md:py-16">
+                  <div className="desktop-menu-heading flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
                     <div>
                       <p className="text-sm text-stone-600">真材实料，简单好吃</p>
                       <h2 className="mt-1 font-serif text-3xl md:text-4xl">今日蒸笼</h2>
@@ -2197,17 +2292,31 @@ export default function Home() {
                       ))}
                     </div>
                   </div>
-                  <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                    {filteredProducts.map((product) => (
-                      <ProductCard
-                        key={product.id}
-                        product={product}
-                        quantity={cart[product.id] ?? 0}
-                        onAdd={() => addProduct(product)}
-                        onRemove={() => removeProduct(product.id)}
-                        available={(inventory[product.id]?.available ?? true) && product.stock > 0}
-                      />
-                    ))}
+                  <div className="mobile-menu-shell">
+                    <aside className="mobile-category-rail" aria-label="移动端商品分类">
+                      {(["全部", "经典", "粗粮", "甜味"] as Category[]).map((item) => (
+                        <button
+                          type="button"
+                          key={item}
+                          onClick={() => setCategory(item)}
+                          className={category === item ? "mobile-category-active" : ""}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </aside>
+                    <div className="product-list-grid mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                      {filteredProducts.map((product) => (
+                        <ProductCard
+                          key={product.id}
+                          product={product}
+                          quantity={cart[product.id] ?? 0}
+                          onAdd={() => addProduct(product)}
+                          onRemove={() => removeProduct(product.id)}
+                          available={(inventory[product.id]?.available ?? true) && product.stock > 0}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </section>
 
@@ -2310,15 +2419,24 @@ export default function Home() {
                         </button>
                       </div>
 
-                      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                        <label className="field-label">
-                          {fulfillment === "pickup" ? "姓名/称呼" : "收货人"}
-                          <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} className="px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300" placeholder={fulfillment === "pickup" ? "怎么称呼您" : "请输入收货人姓名"} />
-                        </label>
-                        <label className="field-label">
-                          手机号
-                          <input value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))} inputMode="tel" className="px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300" placeholder="用于接收通知" />
-                        </label>
+                      <button type="button" onClick={() => navigateCustomer("profile-details")} className="checkout-profile-summary">
+                        <span className="checkout-profile-mark" aria-hidden="true">我</span>
+                        <span className="min-w-0 flex-1 text-left">
+                          <strong>{fulfillment === "pickup" ? "取餐人资料" : "收货信息"}</strong>
+                          <small>
+                            {customerName && /^1\d{10}$/.test(phone)
+                              ? fulfillment === "pickup"
+                                ? `${customerName} · ${phone}`
+                                : deliveryArea && doorNumber
+                                  ? `${customerName} · ${phone} · ${deliveryArea} ${doorNumber}`
+                                  : "联系人已保存，请补充配送地址"
+                              : "请先完善姓名和手机号"}
+                          </small>
+                        </span>
+                        <span className="checkout-profile-chevron" aria-hidden="true">›</span>
+                      </button>
+
+                      <div className="mt-5 grid gap-4 sm:grid-cols-2">
                         <label className="field-label">
                           {fulfillment === "pickup" ? "取餐日期" : "送达日期"}
                           <select value={pickupDay} onChange={(event) => setPickupDay(event.target.value)} className="form-select">
@@ -2341,22 +2459,6 @@ export default function Home() {
                           </label>
                         )}
                       </div>
-
-                      {fulfillment === "delivery" ? (
-                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                          <label className="field-label">
-                            可配送区域
-                            <select value={deliveryArea} onChange={(event) => setDeliveryArea(event.target.value)} className="form-select">
-                              <option value="">请选择 3km 内区域</option>
-                              {DELIVERY_AREAS.map((area) => <option key={area} value={area}>{area}</option>)}
-                            </select>
-                          </label>
-                          <label className="field-label">
-                            门牌号
-                            <input value={doorNumber} onChange={(event) => setDoorNumber(event.target.value)} className="px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300" placeholder="楼栋、单元、房间号" />
-                          </label>
-                        </div>
-                      ) : null}
 
                       <label className="field-label mt-4">
                         备注
@@ -2386,15 +2488,17 @@ export default function Home() {
 
             {customerView === "profile" ? (
               <section className="mx-auto max-w-5xl px-5 py-8 md:px-12 md:py-12">
-                <div className="customer-profile-overview">
+                <button type="button" onClick={() => navigateCustomer("profile-details")} className="customer-profile-overview">
                   <div className="customer-profile-avatar" aria-hidden="true">{customerName.trim().slice(0, 1) || "我"}</div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-stone-600">馒有意思 · 个人中心</p>
-                    <h1 className="mt-1 truncate font-serif text-2xl md:text-3xl">{customerName.trim() || "欢迎回来"}</h1>
-                    <p className="mt-2 text-sm text-stone-600">查看预约进度，也可以继续挑选今天的麦香。</p>
-                  </div>
-                  <span className="customer-profile-channel">网页版</span>
-                </div>
+                  <span className="min-w-0 flex-1 text-left">
+                    <strong className="block truncate font-serif text-2xl md:text-3xl">{customerName.trim() || "未设置姓名"}</strong>
+                    <small className="mt-1 block text-stone-600">
+                      {customerName && /^1\d{10}$/.test(phone) ? `${phone}${deliveryArea ? ` · ${deliveryArea}` : ""}` : "完善资料，下单时自动填入"}
+                    </small>
+                  </span>
+                  <span className="customer-profile-channel">个人资料</span>
+                  <span className="customer-profile-chevron" aria-hidden="true">›</span>
+                </button>
 
                 <button type="button" onClick={() => navigateCustomer("orders")} className="customer-order-entry">
                   <span className="customer-order-entry-icon" aria-hidden="true">单</span>
@@ -2427,6 +2531,48 @@ export default function Home() {
                 <div className="customer-profile-note">
                   <strong>温馨提示</strong>
                   <p>个人收款码付款后需要商家人工核验，到账状态请以订单详情中的提示为准。</p>
+                </div>
+              </section>
+            ) : null}
+
+            {customerView === "profile-details" ? (
+              <section className="mx-auto max-w-3xl px-5 py-8 md:px-12 md:py-12">
+                <div className="customer-secondary-heading">
+                  <button type="button" onClick={() => navigateCustomer("profile")} className="customer-secondary-back" aria-label="返回个人中心">←</button>
+                  <div>
+                    <p className="text-sm text-stone-600">个人中心 · 下单时自动带入</p>
+                    <h1 className="mt-1 font-serif text-3xl md:text-4xl">个人资料与收货地址</h1>
+                  </div>
+                </div>
+
+                <div className="profile-details-form mt-8 bg-[#faf6f1] rounded-[2rem] border border-stone-200 p-6 md:p-8">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="field-label">
+                      姓名或称呼
+                      <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} className="px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300" placeholder="例如：王女士" />
+                    </label>
+                    <label className="field-label">
+                      联系电话
+                      <input value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))} inputMode="tel" className="px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300" placeholder="请输入 11 位手机号" />
+                    </label>
+                    <label className="field-label">
+                      默认配送区域（选填）
+                      <select value={deliveryArea} onChange={(event) => setDeliveryArea(event.target.value)} className="form-select">
+                        <option value="">暂不设置配送地址</option>
+                        {DELIVERY_AREAS.map((area) => <option key={area} value={area}>{area}</option>)}
+                      </select>
+                    </label>
+                    <label className="field-label">
+                      楼栋和门牌号（选填）
+                      <input value={doorNumber} onChange={(event) => setDoorNumber(event.target.value)} className="px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300" placeholder="例如：3 幢 2 单元 502" />
+                    </label>
+                  </div>
+                  <p className="profile-privacy-note">资料只保存在当前设备；提交订单时才会随订单发送给商家。</p>
+                  {profileError ? <p className="mt-4 text-sm font-medium text-red-800" role="alert">{profileError}</p> : null}
+                  <div className="mt-6 flex flex-wrap justify-end gap-3">
+                    <button type="button" onClick={cancelCustomerProfileEdit} className="px-6 py-3 rounded-full font-medium border border-stone-300 bg-transparent text-stone-800">取消</button>
+                    <button type="button" onClick={saveCustomerProfile} className="px-6 py-3 rounded-full font-medium bg-stone-800 text-stone-50">保存常用资料</button>
+                  </div>
                 </div>
               </section>
             ) : null}
@@ -2503,7 +2649,7 @@ export default function Home() {
               <small>选好了</small>
               {cartCount > 0 ? <b>{cartCount}</b> : null}
             </button>
-            <button type="button" onClick={() => navigateCustomer("profile")} className={customerView === "profile" || customerView === "orders" ? "nav-active" : ""}>
+            <button type="button" onClick={() => navigateCustomer("profile")} className={customerView === "profile" || customerView === "profile-details" || customerView === "orders" ? "nav-active" : ""}>
               <span aria-hidden="true">我</span>
               <small>我的</small>
             </button>
