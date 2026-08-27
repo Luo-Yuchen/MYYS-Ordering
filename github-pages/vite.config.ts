@@ -6,6 +6,8 @@ import { defineConfig } from "vite";
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   base: "./",
+  /** 复用主站公共资源，确保站点图标与分享图片进入 Pages 产物。 */
+  publicDir: fileURLToPath(new URL("../public", import.meta.url)),
   plugins: [react()],
   resolve: {
     alias: {
