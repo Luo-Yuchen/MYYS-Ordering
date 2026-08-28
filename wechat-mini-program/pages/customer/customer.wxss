@@ -1307,6 +1307,11 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* 超级管理员登录后为独立管理入口扩展为五栏导航。 */
+.bottom-nav.has-management {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .bottom-nav .nav-item {
   width: 100%;
   min-width: 0;

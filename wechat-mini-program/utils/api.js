@@ -86,6 +86,11 @@ function saveMerchantAccount(merchantSessionToken, account, temporaryPassword) {
   return callOrderingFunction("saveMerchantAccount", { merchantSessionToken, account, temporaryPassword });
 }
 
+/** 删除一个后台账号，仅超级管理员可调用。 */
+function deleteMerchantAccount(merchantSessionToken, accountId) {
+  return callOrderingFunction("deleteMerchantAccount", { merchantSessionToken, accountId });
+}
+
 /** 主动撤销当前商家会话。 */
 function logoutMerchant(merchantSessionToken) {
   return callOrderingFunction("merchantLogout", { merchantSessionToken });
@@ -160,6 +165,7 @@ module.exports = {
   callOrderingFunction,
   changeMerchantPassword,
   createRemoteOrder,
+  deleteMerchantAccount,
   getAccessManagement,
   getAdminOrders,
   getMerchantSession,

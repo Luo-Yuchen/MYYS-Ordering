@@ -143,3 +143,28 @@ test("网页 HTTP 路由与小程序云函数遵循自提配送业务规则", as
   assert.match(miniAdmin, /updateRemoteOrder/);
   assert.match(pagesWorkflow, /actions\/deploy-pages@v4/);
 });
+test("超级管理员管理页提供完整账号 CRUD 和权限保护", async () => {
+  const [page, cloudFunction, miniApi, miniCustomerView, miniAdmin, miniAdminView] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../cloudfunctions/ordering-api/index.js", import.meta.url), "utf8"),
+    readFile(new URL("../wechat-mini-program/utils/api.js", import.meta.url), "utf8"),
+    readFile(new URL("../wechat-mini-program/pages/customer/customer.wxml", import.meta.url), "utf8"),
+    readFile(new URL("../wechat-mini-program/pages/admin/admin.js", import.meta.url), "utf8"),
+    readFile(new URL("../wechat-mini-program/pages/admin/admin.wxml", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /customerView === "management"/);
+  assert.match(page, /账号、角色与会话/);
+  assert.match(page, /deleteMerchantAccount/);
+  assert.match(page, /确认删除/);
+  assert.match(page, /merchant\?\.role === "super_admin"/);
+  assert.match(cloudFunction, /roles: SUPER_ADMIN_ROLES/);
+  assert.match(cloudFunction, /不能删除当前登录的超级管理员账号/);
+  assert.match(cloudFunction, /系统必须至少保留一个启用的超级管理员/);
+  assert.match(cloudFunction, /case "deleteMerchantAccount"/);
+  assert.match(miniApi, /function deleteMerchantAccount/);
+  assert.match(miniCustomerView, /canOpenManagement/);
+  assert.match(miniCustomerView, />管理<\/text>/);
+  assert.match(miniAdmin, /deleteAccount\(event\)/);
+  assert.match(miniAdminView, /bindtap="deleteAccount"/);
+});

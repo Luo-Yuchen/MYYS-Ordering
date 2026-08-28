@@ -470,3 +470,11 @@
   gap: 16rpx;
   margin-top: 18rpx;
 }
+/* 超级管理员账号操作保持紧凑排列，并突出危险删除动作。 */
+.access-account-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12rpx;
+}

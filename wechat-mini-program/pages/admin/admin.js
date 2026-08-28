@@ -13,6 +13,7 @@ const {
 } = require("../../utils/store");
 const {
   changeMerchantPassword,
+  deleteMerchantAccount,
   getAccessManagement,
   getAdminOrders,
   getMerchantSession,
@@ -101,6 +102,8 @@ Page({
     merchantRoleLabel: "",
     /** 当前账号是否可以管理账号与会话设置。 */
     canManageAccess: false,
+    /** 当前账号是否为超级管理员。 */
+    isSuperAdmin: false,
     /** 管理员可查看的账号列表。 */
     accessAccounts: [],
     /** 新登录会话使用的有效分钟数。 */
@@ -119,6 +122,11 @@ Page({
     paymentMessage: "",
     /** 是否正在读取或同步云端收款设置。 */
     isSyncingPayments: false,
+  },
+
+  /** 接收顾客端底部管理入口传入的目标视图。 */
+  onLoad(options) {
+    if (options && options.view === "access") this.setData({ activeView: "access" });
   },
 
   /** 页面显示时恢复本机会话，并向服务端重新确认账号状态和角色。 */
@@ -149,6 +157,7 @@ Page({
   /** 保存未过期会话并安排固定到期清理。 */
   persistMerchantSession(merchantSessionToken, merchantAccount, expiresAt) {
     const canManageAccess = ["super_admin", "admin"].includes(merchantAccount.role);
+    const isSuperAdmin = merchantAccount.role === "super_admin";
     const availableRoleValues = merchantAccount.role === "super_admin"
       ? ["super_admin", "admin", "merchant", "customer"]
       : ["merchant", "customer"];
@@ -163,6 +172,7 @@ Page({
       merchantSessionExpiresAt: expiresAt,
       merchantRoleLabel: MERCHANT_ROLE_LABELS[merchantAccount.role] || merchantAccount.role,
       canManageAccess,
+      isSuperAdmin,
       availableRoleValues,
       availableRoleLabels: availableRoleValues.map((role) => MERCHANT_ROLE_LABELS[role]),
     });
@@ -184,6 +194,7 @@ Page({
       merchantAccount: null,
       merchantRoleLabel: "",
       canManageAccess: false,
+      isSuperAdmin: false,
       accessAccounts: [],
       activeView: "orders",
       paymentMessage: message,
@@ -518,6 +529,8 @@ Page({
       lastLoginText: account.lastLoginAt ? formatDateTime(account.lastLoginAt) : "尚未登录",
       /** 当前管理员是否允许编辑此账号。 */
       canEdit: actor && (actor.role === "super_admin" || ["merchant", "customer"].includes(account.role)),
+      /** 当前超级管理员是否允许删除此账号。 */
+      canDelete: actor && actor.role === "super_admin" && actor.id !== account.id,
     }));
     this.setData({ accessAccounts, sessionDurationDraft: String(result.sessionDurationMinutes) });
   },
@@ -611,6 +624,32 @@ Page({
     } finally {
       this.setData({ isSyncingPayments: false });
     }
+  },
+
+  /** 二次确认后删除指定账号，并使用服务端返回结果刷新权限列表。 */
+  deleteAccount(event) {
+    const account = this.data.accessAccounts.find((item) => item.id === event.currentTarget.dataset.id);
+    if (!account || !account.canDelete || !this.data.isSuperAdmin) return;
+    wx.showModal({
+      title: "确认删除账号",
+      content: `删除“${account.displayName}（${account.username}）”后，其全部登录会话会立即失效且无法恢复。`,
+      confirmText: "确认删除",
+      confirmColor: "#a23f35",
+      success: async (result) => {
+        if (!result.confirm) return;
+        this.setData({ isSyncingPayments: true, accessMessage: "" });
+        try {
+          await deleteMerchantAccount(this.data.merchantSessionToken, account.id);
+          await this.loadAccessManagement(this.data.merchantSessionToken);
+          if (this.data.accountDraft.id === account.id) this.startNewAccount();
+          this.setData({ accessMessage: "账号已删除，其全部旧会话已撤销" });
+        } catch (error) {
+          if (!this.handleAdminError(error, "账号删除失败")) this.setData({ accessMessage: error.message || "账号删除失败" });
+        } finally {
+          this.setData({ isSyncingPayments: false });
+        }
+      },
+    });
   },
 
   /** 打开新增收款方式表单。 */

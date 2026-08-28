@@ -26,6 +26,9 @@ const BUSINESS_ROLES = ["super_admin", "admin", "merchant"];
 /** 允许管理账号与系统设置的账号角色。 */
 const MANAGER_ROLES = ["super_admin", "admin"];
 
+/** 仅允许执行高风险账号操作的超级管理员角色。 */
+const SUPER_ADMIN_ROLES = ["super_admin"];
+
 /** 数据库允许保存的全部账号角色。 */
 const ACCOUNT_ROLES = [...BUSINESS_ROLES, "customer"];
 
@@ -541,6 +544,24 @@ async function saveMerchantAccount(payload) {
   }
   return getAccessManagement(payload);
 }
+
+/** 删除指定后台账号；级联清理其会话，并确保系统始终保留可用超级管理员。 */
+async function deleteMerchantAccount(payload) {
+  const { account: actor } = await requireMerchantSession(payload, { roles: SUPER_ADMIN_ROLES });
+  const accountId = String(payload.accountId || "").trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(accountId)) throw new BusinessError("账号编号无效");
+  const targetRows = await pgRequest(`merchant_accounts?select=id,role,enabled&id=eq.${encodeURIComponent(accountId)}&limit=1`);
+  const target = Array.isArray(targetRows) ? targetRows[0] : null;
+  if (!target) throw new BusinessError("账号不存在", 404);
+  if (target.id === actor.id) throw new BusinessError("不能删除当前登录的超级管理员账号", 403);
+  if (target.role === "super_admin") {
+    const remainingRows = await pgRequest(`merchant_accounts?select=id&role=eq.super_admin&enabled=eq.true&id=neq.${encodeURIComponent(target.id)}&limit=1`);
+    if (!Array.isArray(remainingRows) || remainingRows.length === 0) throw new BusinessError("系统必须至少保留一个启用的超级管理员", 409);
+  }
+  // merchant_sessions 使用级联外键，删除账号时会同步撤销其全部登录会话。
+  await pgRequest(`merchant_accounts?id=eq.${encodeURIComponent(target.id)}`, { method: "DELETE" });
+  return getAccessManagement(payload);
+}
 /** 读取商品、店铺设置和收款方式；有效商家会话可读取停用数据。 */
 async function getStore(payload) {
   let isMerchant = false;
@@ -824,6 +845,7 @@ async function handleAction(payload) {
     case "getAccessManagement": return getAccessManagement(payload);
     case "saveSessionSettings": return saveSessionSettings(payload);
     case "saveMerchantAccount": return saveMerchantAccount(payload);
+    case "deleteMerchantAccount": return deleteMerchantAccount(payload);
     case "getStore": return getStore(payload);
     case "getOrders": return getOrders(payload);
     case "createOrder": return createOrder(payload);

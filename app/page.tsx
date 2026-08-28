@@ -289,7 +289,7 @@ type StoredMerchantSession = {
 };
 
 /** 顾客端页面标签。 */
-type CustomerView = "shop" | "cart" | "profile" | "profile-details" | "orders";
+type CustomerView = "shop" | "cart" | "profile" | "profile-details" | "orders" | "management";
 
 /** 保存在当前设备中的顾客常用资料。 */
 type CustomerProfile = {
@@ -874,7 +874,9 @@ export default function Home() {
           if (isCancelled) return;
           persistMerchantSession(saved.merchantSessionToken, result.merchant, result.expiresAt);
           setMerchantUsername(result.merchant.username);
-          setIsAdmin(true);
+          const isSuperAdmin = result.merchant.role === "super_admin";
+          setIsAdmin(!isSuperAdmin);
+          if (isSuperAdmin) setCustomerView("management");
         } catch {
           if (!isCancelled) clearMerchantSessionState();
         }
@@ -1167,6 +1169,7 @@ export default function Home() {
 
   /** 切换至顾客端页面并回到页面顶部。 */
   function navigateCustomer(view: CustomerView) {
+    if (view === "management" && (!merchantSessionToken || merchant?.role !== "super_admin")) return;
     setCustomerView(view);
     setSuccessOrderId("");
     setProfileError("");
@@ -1239,6 +1242,8 @@ export default function Home() {
     setMerchantAccounts([]);
     setIsAdmin(false);
     setAdminView("orders");
+    // 会话失效后立即离开超级管理员页面，避免继续展示缓存中的账号资料。
+    setCustomerView((current) => current === "management" ? "shop" : current);
   }
 
   /** 读取管理员可见的账号和全局会话配置。 */
@@ -1285,7 +1290,9 @@ export default function Home() {
       if (!result.merchant.mustChangePassword) await loadMerchantWorkspace(result.merchantSessionToken, result.merchant);
       persistMerchantSession(result.merchantSessionToken, result.merchant, result.expiresAt);
       setMerchantUsername(result.merchant.username);
-      setIsAdmin(true);
+      const isSuperAdmin = result.merchant.role === "super_admin";
+      setIsAdmin(!isSuperAdmin);
+      if (isSuperAdmin) setCustomerView("management");
       setIsMerchantLoginOpen(false);
       setBackendMessage("");
       if (!result.merchant.mustChangePassword) setMerchantPassword("");
@@ -1401,34 +1408,80 @@ export default function Home() {
     }
   }
 
-  /** 在顾客端与 CloudBase 云端商家端之间切换。 */
+  /** 二次确认后删除后台账号，并使用服务端返回结果刷新权限列表。 */
+  async function removeMerchantAccount(account: MerchantAccount) {
+    if (!merchantSessionToken || merchant?.role !== "super_admin" || account.id === merchant.id) return;
+    const confirmed = window.confirm(`确认删除“${account.displayName}（${account.username}）”？该账号的全部登录会话会立即失效，且无法恢复。`);
+    if (!confirmed) return;
+    setIsSavingAccessManagement(true);
+    setAccessManagementMessage("");
+    try {
+      const result = await callOrderingFunction<AccessManagementResponse>("deleteMerchantAccount", {
+        merchantSessionToken,
+        accountId: account.id,
+      });
+      setMerchantAccounts(result.accounts);
+      setSessionDurationDraft(String(result.sessionDurationMinutes));
+      if (merchantAccountDraft.id === account.id) setMerchantAccountDraft(EMPTY_MERCHANT_ACCOUNT_DRAFT);
+      setAccessManagementMessage("账号已删除，其全部旧会话已撤销");
+    } catch (error) {
+      setAccessManagementMessage(error instanceof Error ? error.message : "账号删除失败");
+    } finally {
+      setIsSavingAccessManagement(false);
+    }
+  }
+
+  /** 从当前设备读取顾客订单，退出后台后恢复顾客自己的订单列表。 */
+  function restoreCustomerOrdersFromDevice() {
+    try {
+      const savedOrders = window.localStorage.getItem("manxiang-orders-v1");
+      setOrders(savedOrders ? (JSON.parse(savedOrders) as Order[]).map(normalizeOrder) : []);
+    } catch {
+      setOrders([]);
+    }
+  }
+
+  /** 主动撤销后台会话并退出超级管理员管理页。 */
+  async function logoutMerchantSession() {
+    if (merchantSessionToken) {
+      try {
+        await callOrderingFunction("merchantLogout", { merchantSessionToken });
+      } catch {
+        // 退出界面不依赖网络成功；令牌仍会在服务端固定到期。
+      }
+    }
+    restoreCustomerOrdersFromDevice();
+    clearMerchantSessionState();
+    setMerchantPassword("");
+    setMerchantNewPassword("");
+    setMerchantAuthMessage("");
+    navigateCustomer("shop");
+  }
+
+  /** 在顾客端与 CloudBase 云端商家工作台之间切换，但保留有效会话。 */
   async function toggleAdmin() {
     if (isAdmin) {
-      // 离开商家端时主动撤销数据库会话，并恢复当前设备自己的顾客订单。
-      if (merchantSessionToken) {
-        try {
-          await callOrderingFunction("merchantLogout", { merchantSessionToken });
-        } catch {
-          // 退出界面不依赖网络成功；令牌仍会在服务端到期。
-        }
-      }
-      try {
-        const savedOrders = window.localStorage.getItem("manxiang-orders-v1");
-        setOrders(savedOrders ? (JSON.parse(savedOrders) as Order[]).map(normalizeOrder) : []);
-      } catch {
-        setOrders([]);
-      }
-      clearMerchantSessionState();
-      setMerchantPassword("");
-      setMerchantNewPassword("");
-      setMerchantAuthMessage("");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      setIsAdmin(false);
+      navigateCustomer(merchant?.role === "super_admin" ? "management" : "profile");
       return;
     }
-
+    if (merchantSessionToken && merchant) {
+      try {
+        await loadMerchantWorkspace(merchantSessionToken, merchant);
+        setIsAdmin(true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } catch (error) {
+        clearMerchantSessionState();
+        setMerchantAuthMessage(error instanceof Error ? error.message : "商家登录已失效");
+        setIsMerchantLoginOpen(true);
+      }
+      return;
+    }
     setMerchantAuthMessage("");
     setIsMerchantLoginOpen(true);
-  }  /** 校验顾客信息，并通过共享服务生成一条待付款订单。 */
+  }
+
+  /** 校验顾客信息，并通过共享服务生成一条待付款订单。 */
   async function submitOrder() {
     if (!customerName.trim()) {
       setFormError("请填写取餐人姓名");
@@ -1918,6 +1971,89 @@ export default function Home() {
     return null;
   }
 
+  /** 渲染管理员账号增删改查、权限分配和会话设置的统一内容。 */
+  function renderAccessManagement() {
+    return (
+            <section className="mt-5 space-y-6">
+              <div>
+                <h2 className="font-serif text-2xl md:text-3xl">{merchant?.role === "super_admin" ? "系统管理" : "账号与权限"}</h2>
+                <p className="mt-1 text-sm text-stone-600">{merchant?.role === "super_admin" ? "新增、修改、删除账号并分配四级权限" : "维护商家和顾客账号及新登录会话时长"}</p>
+              </div>
+
+              {accessManagementMessage ? <p className="rounded-2xl bg-amber-50 px-5 py-4 text-sm text-amber-900" role="status">{accessManagementMessage}</p> : null}
+
+              <article className="rounded-[2rem] border border-stone-200 bg-[#faf6f1] p-6 md:p-8">
+                <h3 className="font-serif text-xl md:text-2xl">登录保持时间</h3>
+                <p className="mt-1 text-sm text-stone-600">默认 30 分钟，可设置 5 至 1440 分钟；只影响保存后新创建的会话。</p>
+                <div className="mt-5 flex flex-wrap items-end gap-3">
+                  <label className="field-label min-w-[220px] flex-1">
+                    有效分钟数
+                    <input type="number" min={5} max={1440} step={1} value={sessionDurationDraft} onChange={(event) => setSessionDurationDraft(event.target.value)} className="rounded-full border border-stone-200 bg-white px-5 py-3" />
+                  </label>
+                  <button type="button" onClick={() => void saveSessionDuration()} disabled={isSavingAccessManagement} className="rounded-full bg-stone-800 px-7 py-3 font-medium text-stone-50 disabled:opacity-60">保存时长</button>
+                </div>
+              </article>
+
+              <form onSubmit={saveMerchantAccount} className="rounded-[2rem] border border-stone-200 bg-[#faf6f1] p-6 md:p-8">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-serif text-xl md:text-2xl">{merchantAccountDraft.id ? "编辑账号" : "新增账号"}</h3>
+                    <p className="mt-1 text-sm text-stone-600">重置密码、停用或修改角色后，该账号的旧会话会立即失效。</p>
+                  </div>
+                  {merchantAccountDraft.id ? <button type="button" onClick={startNewMerchantAccount} className="rounded-full border border-stone-300 px-5 py-2 text-sm">取消编辑</button> : null}
+                </div>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <label className="field-label">
+                    登录用户名
+                    <input value={merchantAccountDraft.username} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, username: event.target.value }))} className="rounded-full border border-stone-200 bg-white px-5 py-3" placeholder="例如：store01" />
+                  </label>
+                  <label className="field-label">
+                    显示名称
+                    <input value={merchantAccountDraft.displayName} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, displayName: event.target.value }))} className="rounded-full border border-stone-200 bg-white px-5 py-3" placeholder="例如：早班店员" />
+                  </label>
+                  <label className="field-label">
+                    权限等级
+                    <select value={merchantAccountDraft.role} disabled={merchantAccountDraft.id === merchant?.id} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, role: event.target.value as MerchantRole }))} className="rounded-full border border-stone-200 bg-white px-5 py-3 disabled:opacity-60">
+                      {(merchant?.role === "super_admin" ? (["super_admin", "admin", "merchant", "customer"] as MerchantRole[]) : (["merchant", "customer"] as MerchantRole[])).map((role) => <option key={role} value={role}>{MERCHANT_ROLE_LABELS[role]}</option>)}
+                    </select>
+                  </label>
+                  <label className="field-label">
+                    {merchantAccountDraft.id ? "重置临时密码（可留空）" : "临时密码（至少 10 位）"}
+                    <input type="password" value={merchantAccountDraft.temporaryPassword} disabled={merchantAccountDraft.id === merchant?.id} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, temporaryPassword: event.target.value }))} className="rounded-full border border-stone-200 bg-white px-5 py-3 disabled:opacity-60" autoComplete="new-password" />
+                  </label>
+                  <label className="flex items-center gap-3 text-sm text-stone-700 sm:col-span-2">
+                    <input type="checkbox" checked={merchantAccountDraft.enabled} disabled={merchantAccountDraft.id === merchant?.id} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, enabled: event.target.checked }))} className="h-5 w-5 accent-[#59694d] disabled:opacity-60" />
+                    启用账号
+                  </label>
+                </div>
+                <button type="submit" disabled={isSavingAccessManagement} className="mt-6 rounded-full bg-[#59694d] px-7 py-3 font-medium text-white disabled:opacity-60">{merchantAccountDraft.id ? "保存账号修改" : "创建账号"}</button>
+              </form>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                {merchantAccounts.map((account) => {
+                  const canEditAccount = merchant?.role === "super_admin" || ["merchant", "customer"].includes(account.role);
+                  return (
+                    <article key={account.id} className="rounded-[2rem] border border-stone-200 bg-[#faf6f1] p-6">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs ${account.enabled ? "bg-emerald-50 text-emerald-800" : "bg-stone-200 text-stone-600"}`}>{account.enabled ? "已启用" : "已停用"}</span>
+                          <h3 className="mt-3 font-serif text-xl">{account.displayName}</h3>
+                          <p className="text-sm text-stone-600">@{account.username} · {MERCHANT_ROLE_LABELS[account.role]}</p>
+                          <p className="mt-2 text-xs text-stone-500">{account.lastLoginAt ? `最近登录 ${formatDateTime(account.lastLoginAt)}` : "尚未登录"}{account.mustChangePassword ? " · 下次登录需改密" : ""}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                          {canEditAccount ? <button type="button" onClick={() => editMerchantAccount(account)} className="rounded-full border border-stone-300 px-4 py-2 text-sm">编辑</button> : null}
+                          {merchant?.role === "super_admin" && account.id !== merchant.id ? <button type="button" onClick={() => void removeMerchantAccount(account)} disabled={isSavingAccessManagement} className="rounded-full border border-[#a23f35] px-4 py-2 text-sm text-[#8b2f27] disabled:opacity-50">删除</button> : null}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+    );
+  }
+
   return (
     <div className="retro-vintage-theme min-h-screen bg-[#faf6f1] text-stone-800">
       <header className="sticky top-0 z-40 border-b border-stone-200 bg-[#faf6f1]/95 backdrop-blur-sm">
@@ -1938,7 +2074,7 @@ export default function Home() {
               onClick={toggleAdmin}
               className="px-5 py-3 rounded-full font-medium transition-colors duration-300 border border-stone-300 bg-transparent text-stone-800 hover:bg-stone-100 active:scale-95 focus:outline-none focus:ring-2 focus:ring-stone-300"
             >
-              {isAdmin ? "返回顾客端" : "商家接单"}
+              {isAdmin ? (merchant?.role === "super_admin" ? "返回管理页" : "返回顾客端") : "商家接单"}
             </button>
           </div>
         </div>
@@ -2035,7 +2171,7 @@ export default function Home() {
             <button type="button" onClick={() => setAdminView("store")} className={`section-chip ${adminView === "store" ? "section-chip-active" : ""}`}>
               店铺装修
             </button>
-            {merchant && ["super_admin", "admin"].includes(merchant.role) ? (
+            {merchant?.role === "admin" ? (
               <button type="button" onClick={() => setAdminView("access")} className={`section-chip ${adminView === "access" ? "section-chip-active" : ""}`}>
                 账号与权限
               </button>
@@ -2447,82 +2583,7 @@ export default function Home() {
                 </div>
               </div>
             </section>
-          ) : (
-            <section className="mt-5 space-y-6">
-              <div>
-                <h2 className="font-serif text-2xl md:text-3xl">账号与权限</h2>
-                <p className="mt-1 text-sm text-stone-600">管理四级账号权限和新登录会话的固定有效时间</p>
-              </div>
-
-              {accessManagementMessage ? <p className="rounded-2xl bg-amber-50 px-5 py-4 text-sm text-amber-900" role="status">{accessManagementMessage}</p> : null}
-
-              <article className="rounded-[2rem] border border-stone-200 bg-[#faf6f1] p-6 md:p-8">
-                <h3 className="font-serif text-xl md:text-2xl">登录保持时间</h3>
-                <p className="mt-1 text-sm text-stone-600">默认 30 分钟，可设置 5 至 1440 分钟；只影响保存后新创建的会话。</p>
-                <div className="mt-5 flex flex-wrap items-end gap-3">
-                  <label className="field-label min-w-[220px] flex-1">
-                    有效分钟数
-                    <input type="number" min={5} max={1440} step={1} value={sessionDurationDraft} onChange={(event) => setSessionDurationDraft(event.target.value)} className="rounded-full border border-stone-200 bg-white px-5 py-3" />
-                  </label>
-                  <button type="button" onClick={() => void saveSessionDuration()} disabled={isSavingAccessManagement} className="rounded-full bg-stone-800 px-7 py-3 font-medium text-stone-50 disabled:opacity-60">保存时长</button>
-                </div>
-              </article>
-
-              <form onSubmit={saveMerchantAccount} className="rounded-[2rem] border border-stone-200 bg-[#faf6f1] p-6 md:p-8">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="font-serif text-xl md:text-2xl">{merchantAccountDraft.id ? "编辑账号" : "新增账号"}</h3>
-                    <p className="mt-1 text-sm text-stone-600">重置密码、停用或修改角色后，该账号的旧会话会立即失效。</p>
-                  </div>
-                  {merchantAccountDraft.id ? <button type="button" onClick={startNewMerchantAccount} className="rounded-full border border-stone-300 px-5 py-2 text-sm">取消编辑</button> : null}
-                </div>
-                <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <label className="field-label">
-                    登录用户名
-                    <input value={merchantAccountDraft.username} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, username: event.target.value }))} className="rounded-full border border-stone-200 bg-white px-5 py-3" placeholder="例如：store01" />
-                  </label>
-                  <label className="field-label">
-                    显示名称
-                    <input value={merchantAccountDraft.displayName} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, displayName: event.target.value }))} className="rounded-full border border-stone-200 bg-white px-5 py-3" placeholder="例如：早班店员" />
-                  </label>
-                  <label className="field-label">
-                    权限等级
-                    <select value={merchantAccountDraft.role} disabled={merchantAccountDraft.id === merchant?.id} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, role: event.target.value as MerchantRole }))} className="rounded-full border border-stone-200 bg-white px-5 py-3 disabled:opacity-60">
-                      {(merchant?.role === "super_admin" ? (["super_admin", "admin", "merchant", "customer"] as MerchantRole[]) : (["merchant", "customer"] as MerchantRole[])).map((role) => <option key={role} value={role}>{MERCHANT_ROLE_LABELS[role]}</option>)}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    {merchantAccountDraft.id ? "重置临时密码（可留空）" : "临时密码（至少 10 位）"}
-                    <input type="password" value={merchantAccountDraft.temporaryPassword} disabled={merchantAccountDraft.id === merchant?.id} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, temporaryPassword: event.target.value }))} className="rounded-full border border-stone-200 bg-white px-5 py-3 disabled:opacity-60" autoComplete="new-password" />
-                  </label>
-                  <label className="flex items-center gap-3 text-sm text-stone-700 sm:col-span-2">
-                    <input type="checkbox" checked={merchantAccountDraft.enabled} disabled={merchantAccountDraft.id === merchant?.id} onChange={(event) => setMerchantAccountDraft((current) => ({ ...current, enabled: event.target.checked }))} className="h-5 w-5 accent-[#59694d] disabled:opacity-60" />
-                    启用账号
-                  </label>
-                </div>
-                <button type="submit" disabled={isSavingAccessManagement} className="mt-6 rounded-full bg-[#59694d] px-7 py-3 font-medium text-white disabled:opacity-60">{merchantAccountDraft.id ? "保存账号修改" : "创建账号"}</button>
-              </form>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                {merchantAccounts.map((account) => {
-                  const canEditAccount = merchant?.role === "super_admin" || ["merchant", "customer"].includes(account.role);
-                  return (
-                    <article key={account.id} className="rounded-[2rem] border border-stone-200 bg-[#faf6f1] p-6">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs ${account.enabled ? "bg-emerald-50 text-emerald-800" : "bg-stone-200 text-stone-600"}`}>{account.enabled ? "已启用" : "已停用"}</span>
-                          <h3 className="mt-3 font-serif text-xl">{account.displayName}</h3>
-                          <p className="text-sm text-stone-600">@{account.username} · {MERCHANT_ROLE_LABELS[account.role]}</p>
-                          <p className="mt-2 text-xs text-stone-500">{account.lastLoginAt ? `最近登录 ${formatDateTime(account.lastLoginAt)}` : "尚未登录"}{account.mustChangePassword ? " · 下次登录需改密" : ""}</p>
-                        </div>
-                        {canEditAccount ? <button type="button" onClick={() => editMerchantAccount(account)} className="rounded-full border border-stone-300 px-4 py-2 text-sm">编辑</button> : null}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          )}
+          ) : renderAccessManagement()}
         </main>
       ) : (
         <>
@@ -2848,6 +2909,37 @@ export default function Home() {
               </section>
             ) : null}
 
+            {customerView === "management" && merchantSessionToken && merchant?.role === "super_admin" ? (
+              <section className="management-page mx-auto max-w-6xl px-5 py-8 md:px-12 md:py-12">
+                <div className="management-masthead">
+                  <div>
+                    <p className="text-sm text-stone-600">超级管理员 · 系统权限中心</p>
+                    <h1 className="mt-2 font-serif text-3xl md:text-5xl">账号、角色与会话</h1>
+                    <p className="mt-3 max-w-2xl text-sm leading-7 text-stone-600">所有高权限操作集中在此页。账号角色、启停状态、临时密码和删除操作保存后立即由 CloudBase 生效。</p>
+                  </div>
+                  <div className="management-stamp" aria-label={`当前共有 ${merchantAccounts.length} 个后台账号`}>
+                    <strong>{merchantAccounts.length}</strong>
+                    <span>后台账号</span>
+                  </div>
+                </div>
+
+                <div className="management-role-strip">
+                  <div>
+                    <span className="management-role-mark" aria-hidden="true">管</span>
+                    <span>
+                      <strong>{merchant.displayName}</strong>
+                      <small>@{merchant.username} · {MERCHANT_ROLE_LABELS[merchant.role]}</small>
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button type="button" onClick={() => void toggleAdmin()} className="rounded-full border border-[#9a4811] px-5 py-2 text-sm text-[#7b390d]">进入商家工作台</button>
+                    <button type="button" onClick={() => void logoutMerchantSession()} className="rounded-full border border-[#a23f35] px-5 py-2 text-sm text-[#8b2f27]">退出管理员</button>
+                  </div>
+                </div>
+
+                <div className="mt-8">{renderAccessManagement()}</div>
+              </section>
+            ) : null}
             {customerView === "profile-details" ? (
               <section className="mx-auto max-w-3xl px-5 py-8 md:px-12 md:py-12">
                 <div className="customer-secondary-heading">
@@ -2952,7 +3044,7 @@ export default function Home() {
             ) : null}
           </main>
 
-          <nav className="customer-nav" aria-label="顾客端主导航">
+          <nav className={`customer-nav ${merchantSessionToken && merchant?.role === "super_admin" ? "customer-nav-management" : ""}`} aria-label="顾客端主导航">
             <button type="button" onClick={() => navigateCustomer("shop")} className={customerView === "shop" ? "nav-active" : ""}>
               <span aria-hidden="true">麦</span>
               <small>点单</small>
@@ -2966,6 +3058,12 @@ export default function Home() {
               <span aria-hidden="true">我</span>
               <small>我的</small>
             </button>
+            {merchantSessionToken && merchant?.role === "super_admin" ? (
+              <button type="button" onClick={() => navigateCustomer("management")} className={customerView === "management" ? "nav-active" : ""}>
+                <span aria-hidden="true">管</span>
+                <small>管理</small>
+              </button>
+            ) : null}
           </nav>
         </>
       )}

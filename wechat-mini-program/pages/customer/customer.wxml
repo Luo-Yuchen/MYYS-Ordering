@@ -307,10 +307,11 @@
     </view>
   </view>
 
-  <view class="bottom-nav">
+  <view class="bottom-nav {{canOpenManagement ? 'has-management' : ''}}">
     <button class="nav-item {{activeView === 'home' ? 'nav-active' : ''}}" data-view="home" bindtap="setActiveView"><text class="nav-icon">{{navLabels.homeIcon}}</text><text>{{navLabels.home}}</text></button>
     <button class="nav-item {{activeView === 'shop' ? 'nav-active' : ''}}" data-view="shop" bindtap="setActiveView"><text class="nav-icon">馒</text><text>点单</text></button>
     <button class="nav-item {{activeView === 'cart' ? 'nav-active' : ''}}" data-view="cart" bindtap="setActiveView"><text class="nav-icon">笼</text><text>{{navLabels.cart}}</text><text wx:if="{{cartCount > 0}}" class="cart-badge">{{cartCount}}</text></button>
     <button class="nav-item {{activeView === 'profile' || activeView === 'orders' ? 'nav-active' : ''}}" data-view="profile" bindtap="setActiveView"><text class="nav-icon">{{navLabels.profileIcon}}</text><text>{{navLabels.profile}}</text></button>
+    <button wx:if="{{canOpenManagement}}" class="nav-item" bindtap="openManagement"><text class="nav-icon">管</text><text>管理</text></button>
   </view>
 </view>

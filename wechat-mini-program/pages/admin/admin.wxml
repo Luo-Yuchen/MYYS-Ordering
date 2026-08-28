@@ -59,7 +59,7 @@
       <button class="admin-tab {{activeView === 'products' ? 'admin-tab-active' : ''}}" data-view="products" bindtap="setActiveView">商品</button>
       <button class="admin-tab {{activeView === 'payments' ? 'admin-tab-active' : ''}}" data-view="payments" bindtap="setActiveView">收款设置</button>
       <button class="admin-tab {{activeView === 'store' ? 'admin-tab-active' : ''}}" data-view="store" bindtap="setActiveView">店铺装修</button>
-      <button wx:if="{{canManageAccess}}" class="admin-tab {{activeView === 'access' ? 'admin-tab-active' : ''}}" data-view="access" bindtap="setActiveView">账号权限</button>
+      <button wx:if="{{canManageAccess}}" class="admin-tab {{activeView === 'access' ? 'admin-tab-active' : ''}}" data-view="access" bindtap="setActiveView">{{isSuperAdmin ? '管理' : '账号权限'}}</button>
     </scroll-view>
 
     <block wx:if="{{activeView === 'orders'}}">
@@ -224,7 +224,7 @@
 
     <block wx:else>
       <view class="section-heading">
-        <view><view class="section-title">账号与权限</view><view class="section-description">管理员可设置会话时长并维护四级账号。</view></view>
+        <view><view class="section-title">{{isSuperAdmin ? '系统管理' : '账号与权限'}}</view><view class="section-description">{{isSuperAdmin ? '新增、修改、删除账号并分配四级权限。' : '维护商家和顾客账号及会话时长。'}}</view></view>
       </view>
       <view wx:if="{{accessMessage}}" class="section-description auth-message">{{accessMessage}}</view>
 
@@ -276,7 +276,10 @@
               <view class="order-meta">@{{item.username}} · {{item.roleLabel}} · {{item.enabled ? '已启用' : '已停用'}}</view>
               <view class="order-meta">{{item.lastLoginText}}{{item.mustChangePassword ? ' · 下次登录需改密' : ''}}</view>
             </view>
-            <button wx:if="{{item.canEdit}}" class="secondary-button compact-button" data-id="{{item.id}}" bindtap="editAccount">编辑</button>
+<view class="access-account-actions">
+              <button wx:if="{{item.canEdit}}" class="secondary-button compact-button" data-id="{{item.id}}" bindtap="editAccount">编辑</button>
+              <button wx:if="{{item.canDelete}}" class="danger-button compact-button" data-id="{{item.id}}" bindtap="deleteAccount">删除</button>
+            </view>
           </view>
         </view>
       </view>

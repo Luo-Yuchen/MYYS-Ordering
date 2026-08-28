@@ -99,6 +99,8 @@ Page({
     serviceMessage: "",
     /** 是否正在重新连接 CloudBase 共享服务。 */
     isSyncingRemote: false,
+    /** 当前设备是否存在有效的超级管理员会话。 */
+    canOpenManagement: false,
     /** 配送方式。 */
     fulfillment: "pickup",
     /** 顾客姓名。 */
@@ -162,12 +164,18 @@ Page({
   /** 页面显示时同步商品、购物车、订单和店铺设置。 */
   async onShow() {
     const profile = wx.getStorageSync("manyouyisi-mini-profile-v1") || {};
+    const app = getApp();
+    const canOpenManagement = Boolean(app.globalData.merchantSessionToken
+      && app.globalData.merchantAccount
+      && app.globalData.merchantAccount.role === "super_admin"
+      && new Date(app.globalData.merchantSessionExpiresAt).getTime() > Date.now());
     this.setData({
       profileName: profile.name || "",
       profilePhone: profile.phone || "",
       profileAddress: profile.address || "",
       profileNote: profile.note || "",
       profileSaved: Boolean(profile.name || profile.phone || profile.address || profile.note),
+      canOpenManagement,
       customerName: this.data.customerName || profile.name || "",
       phone: this.data.phone || profile.phone || "",
       address: this.data.address || profile.address || "",
@@ -407,6 +415,12 @@ Page({
   /** 打开商家端预览页面。 */
   openAdmin() {
     wx.navigateTo({ url: "/pages/admin/admin" });
+  },
+
+  /** 从底部导航打开超级管理员专属管理页。 */
+  openManagement() {
+    if (!this.data.canOpenManagement) return;
+    wx.navigateTo({ url: "/pages/admin/admin?view=access" });
   },
 
   /** 切换到店自提或配送到家，并重新计算应付金额。 */
