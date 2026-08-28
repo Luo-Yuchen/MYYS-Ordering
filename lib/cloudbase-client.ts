@@ -14,6 +14,8 @@ type CloudBaseFunctionResult<T> = {
   data?: T;
   /** 失败时返回的公开错误提示。 */
   message?: string;
+  /** 失败时返回的标准业务状态码。 */
+  statusCode?: number;
 };
 
 /** 通过公开 HTTPS 路由调用点单云函数，并统一提取业务数据与错误。 */
@@ -24,6 +26,13 @@ export async function callOrderingFunction<T>(action: string, payload: Record<st
     body: JSON.stringify({ action, ...payload }),
   });
   const result = await response.json() as CloudBaseFunctionResult<T>;
-  if (!response.ok || !result?.ok) throw new Error(result?.message || "CloudBase 店铺服务暂时不可用");
+  if (!response.ok || !result?.ok) {
+    const message = result?.message || "CloudBase 店铺服务暂时不可用";
+    // 任一后台请求返回 401 时通知页面统一清理持久化会话。
+    if ((response.status === 401 || result?.statusCode === 401) && payload.merchantSessionToken && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("manyouyisi-merchant-session-invalid", { detail: message }));
+    }
+    throw new Error(message);
+  }
   return result.data as T;
 }

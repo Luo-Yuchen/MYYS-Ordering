@@ -13,14 +13,33 @@ const {
 } = require("../../utils/store");
 const {
   changeMerchantPassword,
+  getAccessManagement,
   getAdminOrders,
+  getMerchantSession,
   getRemoteStore,
   loginMerchant,
   logoutMerchant,
+  saveMerchantAccount,
   saveRemotePaymentMethods,
   saveRemoteProduct,
+  saveSessionSettings,
   updateRemoteOrder,
 } = require("../../utils/api");
+
+/** 小程序端持久化后台会话使用的版本化键名。 */
+const MERCHANT_SESSION_STORAGE_KEY = "manyouyisi-merchant-session-v2";
+
+/** 后台角色对应的中文名称。 */
+const MERCHANT_ROLE_LABELS = {
+  /** 超级管理员角色名称。 */
+  super_admin: "超级管理员",
+  /** 普通管理员角色名称。 */
+  admin: "普通管理员",
+  /** 商家角色名称。 */
+  merchant: "商家",
+  /** 顾客角色名称。 */
+  customer: "顾客",
+};
 
 /** 商家可设置的订单制作状态。 */
 const STATUS_OPTIONS = ["pending", "preparing", "ready", "completed", "cancelled"];
@@ -76,23 +95,112 @@ Page({
     merchantSessionToken: "",
     /** 当前商家的公开账号信息。 */
     merchantAccount: null,
+    /** 当前商家会话的固定到期时间。 */
+    merchantSessionExpiresAt: "",
+    /** 当前账号角色的中文名称。 */
+    merchantRoleLabel: "",
+    /** 当前账号是否可以管理账号与会话设置。 */
+    canManageAccess: false,
+    /** 管理员可查看的账号列表。 */
+    accessAccounts: [],
+    /** 新登录会话使用的有效分钟数。 */
+    sessionDurationDraft: "30",
+    /** 账号表单允许选择的角色值。 */
+    availableRoleValues: ["merchant", "customer"],
+    /** 账号表单允许选择的角色名称。 */
+    availableRoleLabels: ["商家", "顾客"],
+    /** 当前账号表单选择的角色下标。 */
+    accountRoleIndex: 0,
+    /** 新增或编辑账号使用的表单草稿。 */
+    accountDraft: { id: "", username: "", displayName: "", role: "merchant", enabled: true, temporaryPassword: "" },
+    /** 账号权限页面的保存与校验提示。 */
+    accessMessage: "",
     /** 收款设置同步或保存提示。 */
     paymentMessage: "",
     /** 是否正在读取或同步云端收款设置。 */
     isSyncingPayments: false,
   },
 
-  /** 页面显示时先读取缓存；已有商家会话时立即刷新 CloudBase 云端数据。 */
-  onShow() {
+  /** 页面显示时恢复本机会话，并向服务端重新确认账号状态和角色。 */
+  async onShow() {
     const merchantSessionToken = getApp().globalData.merchantSessionToken || "";
     const merchantAccount = getApp().globalData.merchantAccount || null;
-    this.setData({ merchantSessionToken, merchantAccount });
+    const expiresAt = getApp().globalData.merchantSessionExpiresAt || "";
+    this.setData({ merchantSessionToken, merchantAccount, merchantSessionExpiresAt: expiresAt });
     this.refreshAdminData();
-    if (merchantSessionToken && merchantAccount && !merchantAccount.mustChangePassword) {
-      void this.loadCloudData(merchantSessionToken);
+    if (!merchantSessionToken || !merchantAccount || new Date(expiresAt).getTime() <= Date.now()) {
+      this.clearMerchantSession(merchantSessionToken ? "登录已过期，请重新登录" : "");
+      return;
+    }
+    try {
+      const result = await getMerchantSession(merchantSessionToken);
+      this.persistMerchantSession(merchantSessionToken, result.merchant, result.expiresAt);
+      if (!result.merchant.mustChangePassword) await this.loadCloudData(merchantSessionToken, result.merchant);
+    } catch (error) {
+      this.clearMerchantSession(error.message || "登录已失效，请重新登录");
     }
   },
 
+  /** 页面销毁时清理会话到期计时器。 */
+  onUnload() {
+    if (this.sessionExpiryTimer) clearTimeout(this.sessionExpiryTimer);
+  },
+
+  /** 保存未过期会话并安排固定到期清理。 */
+  persistMerchantSession(merchantSessionToken, merchantAccount, expiresAt) {
+    const canManageAccess = ["super_admin", "admin"].includes(merchantAccount.role);
+    const availableRoleValues = merchantAccount.role === "super_admin"
+      ? ["super_admin", "admin", "merchant", "customer"]
+      : ["merchant", "customer"];
+    const savedSession = { merchantSessionToken, merchant: merchantAccount, expiresAt };
+    wx.setStorageSync(MERCHANT_SESSION_STORAGE_KEY, savedSession);
+    getApp().globalData.merchantSessionToken = merchantSessionToken;
+    getApp().globalData.merchantAccount = merchantAccount;
+    getApp().globalData.merchantSessionExpiresAt = expiresAt;
+    this.setData({
+      merchantSessionToken,
+      merchantAccount,
+      merchantSessionExpiresAt: expiresAt,
+      merchantRoleLabel: MERCHANT_ROLE_LABELS[merchantAccount.role] || merchantAccount.role,
+      canManageAccess,
+      availableRoleValues,
+      availableRoleLabels: availableRoleValues.map((role) => MERCHANT_ROLE_LABELS[role]),
+    });
+    if (this.sessionExpiryTimer) clearTimeout(this.sessionExpiryTimer);
+    const remaining = new Date(expiresAt).getTime() - Date.now();
+    if (remaining > 0) this.sessionExpiryTimer = setTimeout(() => this.clearMerchantSession("登录已过期，请重新登录"), remaining);
+  },
+
+  /** 清除小程序本机和当前进程中的后台会话。 */
+  clearMerchantSession(message = "") {
+    if (this.sessionExpiryTimer) clearTimeout(this.sessionExpiryTimer);
+    wx.removeStorageSync(MERCHANT_SESSION_STORAGE_KEY);
+    getApp().globalData.merchantSessionToken = "";
+    getApp().globalData.merchantAccount = null;
+    getApp().globalData.merchantSessionExpiresAt = "";
+    this.setData({
+      merchantSessionToken: "",
+      merchantSessionExpiresAt: "",
+      merchantAccount: null,
+      merchantRoleLabel: "",
+      canManageAccess: false,
+      accessAccounts: [],
+      activeView: "orders",
+      paymentMessage: message,
+    });
+  },
+
+  /** 统一处理后台请求错误，并在 401 时立即清除失效会话。 */
+  handleAdminError(error, fallbackMessage) {
+    const message = error.message || fallbackMessage;
+    if (Number(error.statusCode) === 401) {
+      this.clearMerchantSession(message);
+      wx.showToast({ title: message, icon: "none" });
+      return true;
+    }
+    wx.showToast({ title: message, icon: "none" });
+    return false;
+  },
   /** 将本地数据转换为商家端展示结构和经营汇总。 */
   refreshAdminData() {
     const orders = getOrders();
@@ -214,7 +322,7 @@ Page({
       this.refreshAdminData();
       wx.showToast({ title: "订单状态已同步", icon: "success" });
     } catch (error) {
-      wx.showToast({ title: error.message || "订单状态更新失败", icon: "none" });
+      this.handleAdminError(error, "订单状态更新失败");
     }
   },
 
@@ -238,7 +346,7 @@ Page({
       this.refreshAdminData();
       wx.showToast({ title: "配送进度已同步", icon: "success" });
     } catch (error) {
-      wx.showToast({ title: error.message || "配送进度更新失败", icon: "none" });
+      this.handleAdminError(error, "配送进度更新失败");
     }
   },
 
@@ -257,7 +365,7 @@ Page({
       this.refreshAdminData();
       wx.showToast({ title: paymentStatus === "confirmed" ? "已确认收款" : "已驳回付款信息", icon: "success" });
     } catch (error) {
-      wx.showToast({ title: error.message || "付款核验失败", icon: "none" });
+      this.handleAdminError(error, "付款核验失败");
     }
   },
 
@@ -280,7 +388,7 @@ Page({
       this.refreshAdminData();
       wx.showToast({ title: available ? "已同步上架" : "已同步下架", icon: "none" });
     } catch (error) {
-      wx.showToast({ title: error.message || "商品状态保存失败", icon: "none" });
+      this.handleAdminError(error, "商品状态保存失败");
     }
   },
 
@@ -315,7 +423,7 @@ Page({
     this.setData({ merchantNewPassword: event.detail.value });
   },
 
-  /** 使用数据库中的商家用户名和密码登录。 */
+  /** 使用数据库中的商家用户名和密码登录并持久化固定时长会话。 */
   async loginMerchant() {
     const merchantUsername = this.data.merchantUsername.trim().toLowerCase();
     const merchantPassword = this.data.merchantPassword;
@@ -326,19 +434,14 @@ Page({
     this.setData({ isSyncingPayments: true, paymentMessage: "" });
     try {
       const result = await loginMerchant(merchantUsername, merchantPassword);
-      getApp().globalData.merchantSessionToken = result.merchantSessionToken;
-      getApp().globalData.merchantAccount = result.merchant;
-      this.setData({
-        merchantSessionToken: result.merchantSessionToken,
-        merchantAccount: result.merchant,
-        paymentMessage: result.merchant.mustChangePassword ? "请先修改初始密码" : "已登录 CloudBase PG 商家端",
-      });
+      this.persistMerchantSession(result.merchantSessionToken, result.merchant, result.expiresAt);
+      this.setData({ paymentMessage: result.merchant.mustChangePassword ? "请先修改初始密码" : "已登录 CloudBase PG 商家端" });
       if (!result.merchant.mustChangePassword) {
-        await this.loadCloudData(result.merchantSessionToken);
+        await this.loadCloudData(result.merchantSessionToken, result.merchant);
         this.setData({ merchantPassword: "" });
       }
     } catch (error) {
-      this.setData({ paymentMessage: error.message || "商家登录失败" });
+      this.clearMerchantSession(error.message || "商家登录失败");
     } finally {
       this.setData({ isSyncingPayments: false });
     }
@@ -356,17 +459,10 @@ Page({
     this.setData({ isSyncingPayments: true, paymentMessage: "" });
     try {
       await changeMerchantPassword(merchantSessionToken, currentPassword, newPassword);
-      getApp().globalData.merchantSessionToken = "";
-      getApp().globalData.merchantAccount = null;
-      this.setData({
-        merchantSessionToken: "",
-        merchantAccount: null,
-        merchantPassword: "",
-        merchantNewPassword: "",
-        paymentMessage: "密码已修改，请使用新密码重新登录",
-      });
+      this.clearMerchantSession("密码已修改，请使用新密码重新登录");
+      this.setData({ merchantPassword: "", merchantNewPassword: "" });
     } catch (error) {
-      this.setData({ paymentMessage: error.message || "密码修改失败" });
+      if (!this.handleAdminError(error, "密码修改失败")) this.setData({ paymentMessage: error.message || "密码修改失败" });
     } finally {
       this.setData({ isSyncingPayments: false });
     }
@@ -378,25 +474,18 @@ Page({
     if (merchantSessionToken) {
       try {
         await logoutMerchant(merchantSessionToken);
-      } catch (error) {
+      } catch {
         // 退出界面不依赖网络成功；服务端会话仍会自动到期。
       }
     }
-    getApp().globalData.merchantSessionToken = "";
-    getApp().globalData.merchantAccount = null;
-    this.setData({
-      merchantSessionToken: "",
-      merchantAccount: null,
-      merchantPassword: "",
-      merchantNewPassword: "",
-      paymentMessage: "已退出商家端",
-    });
+    this.clearMerchantSession("已退出商家端");
+    this.setData({ merchantPassword: "", merchantNewPassword: "" });
   },
 
   /** 读取 CloudBase 商品、订单、店铺装修和全部收款方式。 */
-  async loadCloudData(merchantSessionToken) {
+  async loadCloudData(merchantSessionToken, merchantAccount = this.data.merchantAccount) {
     const [storeResult, orderResult] = await Promise.all([
-      getRemoteStore(),
+      getRemoteStore(merchantSessionToken),
       getAdminOrders(merchantSessionToken),
     ]);
     const products = storeResult.products.map((product) => ({
@@ -414,6 +503,114 @@ Page({
     saveSettings(settings);
     savePaymentMethods(storeResult.paymentMethods || []);
     this.refreshAdminData();
+    if (merchantAccount && ["super_admin", "admin"].includes(merchantAccount.role)) await this.loadAccessManagement(merchantSessionToken);
+  },
+
+  /** 读取并格式化管理员可见的账号和会话设置。 */
+  async loadAccessManagement(merchantSessionToken) {
+    const result = await getAccessManagement(merchantSessionToken);
+    const actor = this.data.merchantAccount;
+    const accessAccounts = (result.accounts || []).map((account) => ({
+      ...account,
+      /** 角色中文名称。 */
+      roleLabel: MERCHANT_ROLE_LABELS[account.role] || account.role,
+      /** 最近登录时间展示文本。 */
+      lastLoginText: account.lastLoginAt ? formatDateTime(account.lastLoginAt) : "尚未登录",
+      /** 当前管理员是否允许编辑此账号。 */
+      canEdit: actor && (actor.role === "super_admin" || ["merchant", "customer"].includes(account.role)),
+    }));
+    this.setData({ accessAccounts, sessionDurationDraft: String(result.sessionDurationMinutes) });
+  },
+
+  /** 更新会话有效分钟数输入值。 */
+  updateSessionDuration(event) {
+    this.setData({ sessionDurationDraft: event.detail.value });
+  },
+
+  /** 保存新登录会话使用的固定有效时间。 */
+  async saveSessionDuration() {
+    const sessionDurationMinutes = Number(this.data.sessionDurationDraft);
+    if (!Number.isInteger(sessionDurationMinutes) || sessionDurationMinutes < 5 || sessionDurationMinutes > 1440) {
+      this.setData({ accessMessage: "登录有效期必须是 5 至 1440 分钟的整数" });
+      return;
+    }
+    this.setData({ isSyncingPayments: true, accessMessage: "" });
+    try {
+      const result = await saveSessionSettings(this.data.merchantSessionToken, sessionDurationMinutes);
+      this.setData({ sessionDurationDraft: String(result.sessionDurationMinutes), accessMessage: "已保存，将从下一次登录开始生效" });
+    } catch (error) {
+      if (!this.handleAdminError(error, "会话时长保存失败")) this.setData({ accessMessage: error.message || "会话时长保存失败" });
+    } finally {
+      this.setData({ isSyncingPayments: false });
+    }
+  },
+
+  /** 清空账号表单以创建新账号。 */
+  startNewAccount() {
+    this.setData({
+      accountDraft: { id: "", username: "", displayName: "", role: "merchant", enabled: true, temporaryPassword: "" },
+      accountRoleIndex: Math.max(this.data.availableRoleValues.indexOf("merchant"), 0),
+      accessMessage: "",
+    });
+  },
+
+  /** 将选中账号载入编辑表单。 */
+  editAccount(event) {
+    const account = this.data.accessAccounts.find((item) => item.id === event.currentTarget.dataset.id);
+    if (!account || !account.canEdit) return;
+    const roleIndex = this.data.availableRoleValues.indexOf(account.role);
+    this.setData({
+      accountDraft: { id: account.id, username: account.username, displayName: account.displayName, role: account.role, enabled: account.enabled, temporaryPassword: "" },
+      accountRoleIndex: Math.max(roleIndex, 0),
+      accessMessage: "",
+    });
+  },
+
+  /** 更新账号表单中的文本字段。 */
+  updateAccountField(event) {
+    const field = event.currentTarget.dataset.field;
+    this.setData({ [`accountDraft.${field}`]: event.detail.value });
+  },
+
+  /** 更新账号表单中的角色。 */
+  changeAccountRole(event) {
+    const accountRoleIndex = Number(event.detail.value);
+    this.setData({ accountRoleIndex, "accountDraft.role": this.data.availableRoleValues[accountRoleIndex] });
+  },
+
+  /** 更新账号表单中的启用状态。 */
+  toggleAccountEnabled(event) {
+    this.setData({ "accountDraft.enabled": event.detail.value });
+  },
+
+  /** 新增或保存账号，并刷新服务器返回的权限列表。 */
+  async saveAccount() {
+    const draft = this.data.accountDraft;
+    if (!(draft.username || "").trim() || !(draft.displayName || "").trim()) {
+      this.setData({ accessMessage: "请完整填写用户名和显示名称" });
+      return;
+    }
+    if (!draft.id && (draft.temporaryPassword || "").length < 10) {
+      this.setData({ accessMessage: "新账号临时密码至少需要 10 位" });
+      return;
+    }
+    this.setData({ isSyncingPayments: true, accessMessage: "" });
+    try {
+      await saveMerchantAccount(this.data.merchantSessionToken, {
+        id: draft.id,
+        username: draft.username,
+        displayName: draft.displayName,
+        role: draft.role,
+        enabled: draft.enabled,
+      }, draft.temporaryPassword || "");
+      await this.loadAccessManagement(this.data.merchantSessionToken);
+      this.startNewAccount();
+      this.setData({ accessMessage: "账号设置已保存，权限变化会立即撤销旧会话" });
+    } catch (error) {
+      if (!this.handleAdminError(error, "账号设置保存失败")) this.setData({ accessMessage: error.message || "账号设置保存失败" });
+    } finally {
+      this.setData({ isSyncingPayments: false });
+    }
   },
 
   /** 打开新增收款方式表单。 */
@@ -525,7 +722,7 @@ Page({
       this.refreshAdminData();
       this.setData({ paymentMessage: "已同步到网页版和小程序顾客端" });
     } catch (error) {
-      this.setData({ paymentMessage: error.message || "收款设置同步失败" });
+      if (!this.handleAdminError(error, "收款设置同步失败")) this.setData({ paymentMessage: error.message || "收款设置同步失败" });
     } finally {
       this.setData({ isSyncingPayments: false });
     }

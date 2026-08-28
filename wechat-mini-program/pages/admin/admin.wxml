@@ -33,7 +33,7 @@
         <view class="section-heading">
           <view>
             <view class="serif order-customer">{{merchantAccount.displayName || merchantAccount.username}}</view>
-            <view class="section-description">CloudBase PG 商家会话已生效</view>
+            <view class="section-description">{{merchantRoleLabel}} · CloudBase PG 会话已生效</view>
           </view>
           <button class="secondary-button compact-button" bindtap="logoutMerchant">退出登录</button>
         </view>
@@ -59,6 +59,7 @@
       <button class="admin-tab {{activeView === 'products' ? 'admin-tab-active' : ''}}" data-view="products" bindtap="setActiveView">商品</button>
       <button class="admin-tab {{activeView === 'payments' ? 'admin-tab-active' : ''}}" data-view="payments" bindtap="setActiveView">收款设置</button>
       <button class="admin-tab {{activeView === 'store' ? 'admin-tab-active' : ''}}" data-view="store" bindtap="setActiveView">店铺装修</button>
+      <button wx:if="{{canManageAccess}}" class="admin-tab {{activeView === 'access' ? 'admin-tab-active' : ''}}" data-view="access" bindtap="setActiveView">账号权限</button>
     </scroll-view>
 
     <block wx:if="{{activeView === 'orders'}}">
@@ -202,7 +203,7 @@
       </view>
     </block>
 
-    <block wx:else>
+    <block wx:elif="{{activeView === 'store'}}">
       <view class="section-heading">
         <view><view class="section-title">店铺装修</view><view class="section-description">顾客端首页内容和背景均可自定义。</view></view>
         <button class="primary-button compact-button" bindtap="editStore">开始编辑</button>
@@ -219,6 +220,66 @@
         </view>
       </view>
       <button class="danger-button reset-button" bindtap="resetDemo">恢复全部演示数据</button>
+    </block>
+
+    <block wx:else>
+      <view class="section-heading">
+        <view><view class="section-title">账号与权限</view><view class="section-description">管理员可设置会话时长并维护四级账号。</view></view>
+      </view>
+      <view wx:if="{{accessMessage}}" class="section-description auth-message">{{accessMessage}}</view>
+
+      <view class="admin-order card access-card">
+        <view class="serif order-customer">登录保持时间</view>
+        <view class="section-description">默认 30 分钟，可设置 5 至 1440 分钟；保存后仅影响新登录。</view>
+        <view class="form-field">
+          <view class="field-label">有效分钟数</view>
+          <input class="field-input" type="number" value="{{sessionDurationDraft}}" bindinput="updateSessionDuration" />
+        </view>
+        <button class="primary-button" loading="{{isSyncingPayments}}" bindtap="saveSessionDuration">保存时长</button>
+      </view>
+
+      <view class="admin-order card access-card">
+        <view class="section-heading">
+          <view><view class="serif order-customer">{{accountDraft.id ? '编辑账号' : '新增账号'}}</view><view class="section-description">角色、停用或重置密码会立即撤销旧会话。</view></view>
+          <button wx:if="{{accountDraft.id}}" class="secondary-button compact-button" bindtap="startNewAccount">取消编辑</button>
+        </view>
+        <view class="form-field">
+          <view class="field-label">登录用户名</view>
+          <input class="field-input" value="{{accountDraft.username}}" data-field="username" bindinput="updateAccountField" placeholder="例如：store01" />
+        </view>
+        <view class="form-field">
+          <view class="field-label">显示名称</view>
+          <input class="field-input" value="{{accountDraft.displayName}}" data-field="displayName" bindinput="updateAccountField" placeholder="例如：早班店员" />
+        </view>
+        <view class="form-field">
+          <view class="field-label">权限等级</view>
+          <picker mode="selector" range="{{availableRoleLabels}}" value="{{accountRoleIndex}}" disabled="{{accountDraft.id === merchantAccount.id}}" bindchange="changeAccountRole">
+            <view class="field-input">{{availableRoleLabels[accountRoleIndex]}} ▾</view>
+          </picker>
+        </view>
+        <view class="form-field">
+          <view class="field-label">{{accountDraft.id ? '重置临时密码（可留空）' : '临时密码（至少10位）'}}</view>
+          <input class="field-input" password value="{{accountDraft.temporaryPassword}}" disabled="{{accountDraft.id === merchantAccount.id}}" data-field="temporaryPassword" bindinput="updateAccountField" />
+        </view>
+        <view class="status-row">
+          <text class="status-caption">启用账号</text>
+          <switch color="#59694d" checked="{{accountDraft.enabled}}" disabled="{{accountDraft.id === merchantAccount.id}}" bindchange="toggleAccountEnabled" />
+        </view>
+        <button class="primary-button" loading="{{isSyncingPayments}}" bindtap="saveAccount">{{accountDraft.id ? '保存账号修改' : '创建账号'}}</button>
+      </view>
+
+      <view class="admin-list">
+        <view wx:for="{{accessAccounts}}" wx:key="id" class="admin-order card access-account-card">
+          <view class="section-heading">
+            <view>
+              <view class="serif order-customer">{{item.displayName}}</view>
+              <view class="order-meta">@{{item.username}} · {{item.roleLabel}} · {{item.enabled ? '已启用' : '已停用'}}</view>
+              <view class="order-meta">{{item.lastLoginText}}{{item.mustChangePassword ? ' · 下次登录需改密' : ''}}</view>
+            </view>
+            <button wx:if="{{item.canEdit}}" class="secondary-button compact-button" data-id="{{item.id}}" bindtap="editAccount">编辑</button>
+          </view>
+        </view>
+      </view>
     </block>
   </view>
 </view>

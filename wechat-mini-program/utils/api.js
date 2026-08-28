@@ -1,5 +1,8 @@
 const { orderingFunctionName } = require("../config");
 
+/** 小程序端持久化后台会话使用的版本化键名。 */
+const MERCHANT_SESSION_STORAGE_KEY = "manyouyisi-merchant-session-v2";
+
 /** 将 CloudBase 底层错误转换为适合顾客阅读的简短提示。 */
 function createCloudFunctionError(error) {
   const errorCode = error && (error.errCode || error.code);
@@ -31,7 +34,17 @@ function callOrderingFunction(action, data = {}) {
           resolve(result.data);
           return;
         }
-        reject(new Error(result.message || "CloudBase 店铺服务暂时不可用"));
+        const businessError = new Error(result.message || "CloudBase 店铺服务暂时不可用");
+        /** 云函数返回的标准业务状态码。 */
+        businessError.statusCode = Number(result.statusCode || 0);
+        if (businessError.statusCode === 401) {
+          // 任一后台页面收到 401 后都立即清除本机与当前进程中的失效会话。
+          wx.removeStorageSync(MERCHANT_SESSION_STORAGE_KEY);
+          getApp().globalData.merchantSessionToken = "";
+          getApp().globalData.merchantAccount = null;
+          getApp().globalData.merchantSessionExpiresAt = "";
+        }
+        reject(businessError);
       },
       fail(error) {
         const friendlyError = createCloudFunctionError(error);
@@ -48,9 +61,29 @@ function loginMerchant(username, password) {
   return callOrderingFunction("merchantLogin", { username, password });
 }
 
+/** 校验已保存的商家会话并读取最新公开账号信息。 */
+function getMerchantSession(merchantSessionToken) {
+  return callOrderingFunction("getMerchantSession", { merchantSessionToken });
+}
+
 /** 修改商家数据库密码，成功后需要重新登录。 */
 function changeMerchantPassword(merchantSessionToken, currentPassword, newPassword) {
   return callOrderingFunction("changeMerchantPassword", { merchantSessionToken, currentPassword, newPassword });
+}
+
+/** 读取管理员可见的账号列表和全局会话设置。 */
+function getAccessManagement(merchantSessionToken) {
+  return callOrderingFunction("getAccessManagement", { merchantSessionToken });
+}
+
+/** 保存新登录会话使用的固定有效分钟数。 */
+function saveSessionSettings(merchantSessionToken, sessionDurationMinutes) {
+  return callOrderingFunction("saveSessionSettings", { merchantSessionToken, sessionDurationMinutes });
+}
+
+/** 新增或更新一个后台账号。 */
+function saveMerchantAccount(merchantSessionToken, account, temporaryPassword) {
+  return callOrderingFunction("saveMerchantAccount", { merchantSessionToken, account, temporaryPassword });
 }
 
 /** 主动撤销当前商家会话。 */
@@ -58,9 +91,9 @@ function logoutMerchant(merchantSessionToken) {
   return callOrderingFunction("merchantLogout", { merchantSessionToken });
 }
 
-/** 读取两端共用的公开商品、店铺设置和收款码配置。 */
-function getRemoteStore() {
-  return callOrderingFunction("getStore");
+/** 读取两端共用的商品、店铺设置和收款码配置；后台会话可读取停用内容。 */
+function getRemoteStore(merchantSessionToken = "") {
+  return callOrderingFunction("getStore", merchantSessionToken ? { merchantSessionToken } : {});
 }
 
 /** 使用商家会话覆盖保存两端共用的完整收款方式列表。 */
@@ -127,13 +160,17 @@ module.exports = {
   callOrderingFunction,
   changeMerchantPassword,
   createRemoteOrder,
+  getAccessManagement,
   getAdminOrders,
+  getMerchantSession,
   loginMerchant,
   getRemoteOrders,
   getRemoteStore,
+  saveMerchantAccount,
   saveRemotePaymentMethods,
   saveRemoteProduct,
   saveRemoteStoreSettings,
+  saveSessionSettings,
   logoutMerchant,
   submitRemotePayment,
   updateRemoteOrder,

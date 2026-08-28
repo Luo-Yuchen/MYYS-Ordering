@@ -406,6 +406,14 @@
   margin-top: 30rpx;
 }
 
+/* 账号权限设置卡片保持适合手机单列操作的间距。 */
+.access-card {
+  margin-top: 24rpx;
+}
+
+.access-account-card {
+  margin-top: 20rpx;
+}
 @media (max-width: 360px), (max-height: 700px) {
   .admin-title {
     font-size: 34rpx;

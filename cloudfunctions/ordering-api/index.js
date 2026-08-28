@@ -11,8 +11,23 @@ const CLOUDBASE_ENV_ID = process.env.CLOUDBASE_ENV_ID || "bun-order-d9gn0mjn0902
 /** CloudBase PostgreSQL REST 基础地址。 */
 const PG_REST_BASE_URL = `https://${CLOUDBASE_ENV_ID}.api.tcloudbasegateway.com/v1/rdb/rest`;
 
-/** 商家会话默认有效时长，单位毫秒。 */
-const MERCHANT_SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
+/** 商家会话默认有效时长，单位分钟。 */
+const DEFAULT_MERCHANT_SESSION_DURATION_MINUTES = 30;
+
+/** 商家会话允许配置的最小时长，单位分钟。 */
+const MIN_MERCHANT_SESSION_DURATION_MINUTES = 5;
+
+/** 商家会话允许配置的最大时长，单位分钟。 */
+const MAX_MERCHANT_SESSION_DURATION_MINUTES = 1440;
+
+/** 允许进入经营后台的账号角色。 */
+const BUSINESS_ROLES = ["super_admin", "admin", "merchant"];
+
+/** 允许管理账号与系统设置的账号角色。 */
+const MANAGER_ROLES = ["super_admin", "admin"];
+
+/** 数据库允许保存的全部账号角色。 */
+const ACCOUNT_ROLES = [...BUSINESS_ROLES, "customer"];
 
 /** 商家密码允许的最小长度。 */
 const MERCHANT_PASSWORD_MIN_LENGTH = 10;
@@ -236,7 +251,10 @@ function mapMerchant(account) {
     id: account.id,
     username: account.username_normalized,
     displayName: account.display_name,
+    role: ACCOUNT_ROLES.includes(account.role) ? account.role : "merchant",
+    enabled: account.enabled === true,
     mustChangePassword: account.must_change_password === true,
+    lastLoginAt: account.last_login_at ? toIsoDate(account.last_login_at) : "",
   };
 }
 
@@ -287,17 +305,30 @@ async function readMerchantSession(sessionToken) {
   return { session, account };
 }
 
-/** 校验商家会话，并按首次改密状态限制管理动作。 */
+/** 校验商家会话，并按首次改密状态和角色限制管理动作。 */
 async function requireMerchantSession(payload, options = {}) {
   const sessionToken = String(payload.merchantSessionToken || "");
   const result = await readMerchantSession(sessionToken);
   if (result.account.must_change_password === true && options.allowPasswordChange !== true) {
     throw new BusinessError("请先修改初始密码", 428);
   }
+  if (Array.isArray(options.roles) && !options.roles.includes(result.account.role)) {
+    throw new BusinessError("当前账号没有执行此操作的权限", 403);
+  }
   return result;
 }
 
-/** 使用数据库账号密码登录商家端并签发 12 小时会话。 */
+/** 读取数据库中的后台会话有效时长，并对异常配置使用安全默认值。 */
+async function getMerchantSessionDurationMinutes() {
+  const rows = await pgRequest("system_settings?select=merchant_session_duration_minutes&id=eq.default&limit=1");
+  const value = Number(Array.isArray(rows) && rows[0] ? rows[0].merchant_session_duration_minutes : DEFAULT_MERCHANT_SESSION_DURATION_MINUTES);
+  if (!Number.isInteger(value) || value < MIN_MERCHANT_SESSION_DURATION_MINUTES || value > MAX_MERCHANT_SESSION_DURATION_MINUTES) {
+    return DEFAULT_MERCHANT_SESSION_DURATION_MINUTES;
+  }
+  return value;
+}
+
+/** 使用数据库账号密码登录商家端并按系统配置签发固定时长会话。 */
 async function merchantLogin(payload) {
   const username = normalizeUsername(payload.username);
   const password = String(payload.password || "");
@@ -312,10 +343,12 @@ async function merchantLogin(payload) {
     recordLoginFailure(username);
     throw new BusinessError("用户名或密码错误", 401);
   }
+  if (!BUSINESS_ROLES.includes(account.role)) throw new BusinessError("当前账号没有进入商家后台的权限", 403);
   merchantLoginAttempts.delete(username);
   const sessionToken = crypto.randomBytes(32).toString("hex");
   const sessionId = `session-${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
-  const expiresAt = new Date(Date.now() + MERCHANT_SESSION_DURATION_MS).toISOString();
+  const sessionDurationMinutes = await getMerchantSessionDurationMinutes();
+  const expiresAt = new Date(Date.now() + sessionDurationMinutes * 60 * 1000).toISOString();
   await pgRequest("merchant_sessions", {
     method: "POST",
     body: {
@@ -335,6 +368,7 @@ async function merchantLogin(payload) {
     merchant: mapMerchant(account),
     merchantSessionToken: sessionToken,
     expiresAt,
+    sessionDurationMinutes,
   };
 }
 
@@ -361,7 +395,7 @@ async function merchantLogout(payload) {
 
 /** 修改商家密码并撤销该账号的全部旧会话。 */
 async function changeMerchantPassword(payload) {
-  const { account } = await requireMerchantSession(payload, { allowPasswordChange: true });
+  const { account } = await requireMerchantSession(payload, { allowPasswordChange: true, roles: BUSINESS_ROLES });
   const currentPassword = String(payload.currentPassword || "");
   const newPassword = String(payload.newPassword || "");
   if (!(await verifyPassword(account, currentPassword))) throw new BusinessError("当前密码错误", 403);
@@ -386,11 +420,132 @@ async function changeMerchantPassword(payload) {
   return { ok: true, reloginRequired: true };
 }
 
+/** 读取管理员可见的账号列表和全局会话设置。 */
+async function getAccessManagement(payload) {
+  await requireMerchantSession(payload, { roles: MANAGER_ROLES });
+  const [accounts, settingsRows] = await Promise.all([
+    pgRequest("merchant_accounts?select=id,username_normalized,display_name,role,enabled,must_change_password,created_at,last_login_at&order=created_at.asc"),
+    pgRequest("system_settings?select=merchant_session_duration_minutes,updated_at&id=eq.default&limit=1"),
+  ]);
+  const settings = Array.isArray(settingsRows) && settingsRows[0] ? settingsRows[0] : {};
+  return {
+    accounts: (Array.isArray(accounts) ? accounts : []).map(mapMerchant),
+    sessionDurationMinutes: Number(settings.merchant_session_duration_minutes || DEFAULT_MERCHANT_SESSION_DURATION_MINUTES),
+    settingsUpdatedAt: settings.updated_at ? toIsoDate(settings.updated_at) : "",
+  };
+}
+
+/** 保存全局后台会话时长，仅影响之后新签发的会话。 */
+async function saveSessionSettings(payload) {
+  const { account } = await requireMerchantSession(payload, { roles: MANAGER_ROLES });
+  const sessionDurationMinutes = Number(payload.sessionDurationMinutes);
+  if (!Number.isInteger(sessionDurationMinutes)
+    || sessionDurationMinutes < MIN_MERCHANT_SESSION_DURATION_MINUTES
+    || sessionDurationMinutes > MAX_MERCHANT_SESSION_DURATION_MINUTES) {
+    throw new BusinessError("登录有效期必须是 5 至 1440 分钟的整数");
+  }
+  await pgUpsert("system_settings", {
+    id: "default",
+    merchant_session_duration_minutes: sessionDurationMinutes,
+    updated_by: account.id,
+    updated_at: new Date().toISOString(),
+  });
+  return { sessionDurationMinutes };
+}
+
+/** 校验管理员是否允许操作目标账号及目标角色。 */
+function assertAccountManagementAllowed(actor, target, nextRole, nextEnabled, password) {
+  if (actor.role === "admin") {
+    if ((target && !["merchant", "customer"].includes(target.role)) || !["merchant", "customer"].includes(nextRole)) {
+      throw new BusinessError("普通管理员只能管理商家和顾客账号", 403);
+    }
+  }
+  if (target && target.id === actor.id) {
+    if (nextRole !== actor.role || nextEnabled !== true) throw new BusinessError("不能修改或停用当前登录账号的角色", 403);
+    if (password) throw new BusinessError("请通过修改密码功能更新当前账号密码", 403);
+  }
+}
+
+/** 新增或更新一个后台账号，并在权限变化后撤销其旧会话。 */
+async function saveMerchantAccount(payload) {
+  const { account: actor } = await requireMerchantSession(payload, { roles: MANAGER_ROLES });
+  const draft = payload.account || {};
+  const accountId = String(draft.id || "").trim();
+  const username = normalizeUsername(draft.username);
+  const displayName = String(draft.displayName || "").trim().slice(0, 80);
+  const role = String(draft.role || "merchant");
+  const enabled = draft.enabled !== false;
+  const password = String(payload.temporaryPassword || "");
+  if (accountId && !/^[a-zA-Z0-9_-]{1,100}$/.test(accountId)) throw new BusinessError("账号编号无效");
+  if (!/^[a-z0-9_.-]{3,64}$/.test(username) || !displayName || !ACCOUNT_ROLES.includes(role)) {
+    throw new BusinessError("请检查用户名、显示名称和角色");
+  }
+  if (password && (password.length < MERCHANT_PASSWORD_MIN_LENGTH || password.length > 128)) {
+    throw new BusinessError("临时密码至少需要 10 位，且不能超过 128 位");
+  }
+  const targetRows = accountId
+    ? await pgRequest(`merchant_accounts?select=*&id=eq.${encodeURIComponent(accountId)}&limit=1`)
+    : [];
+  const target = Array.isArray(targetRows) ? targetRows[0] : null;
+  if (accountId && !target) throw new BusinessError("账号不存在", 404);
+  if (!target && !password) throw new BusinessError("新账号必须设置至少 10 位临时密码");
+  assertAccountManagementAllowed(actor, target, role, enabled, password);
+
+  const now = new Date().toISOString();
+  const passwordRecord = password ? await createPasswordRecord(password) : null;
+  try {
+    if (target) {
+      const patch = {
+        username_normalized: username,
+        display_name: displayName,
+        role,
+        enabled,
+        updated_at: now,
+      };
+      if (passwordRecord) {
+        patch.password_hash = passwordRecord.passwordHash;
+        patch.password_salt = passwordRecord.passwordSalt;
+        patch.password_algorithm = "scrypt";
+        patch.password_version = Number(target.password_version || 1) + 1;
+        patch.must_change_password = true;
+      }
+      await pgRequest(`merchant_accounts?id=eq.${encodeURIComponent(target.id)}`, { method: "PATCH", body: patch });
+      if (target.role !== role || target.enabled !== enabled || passwordRecord) {
+        await pgRequest(`merchant_sessions?merchant_id=eq.${encodeURIComponent(target.id)}&revoked_at=is.null`, {
+          method: "PATCH",
+          body: { revoked_at: now },
+        });
+      }
+    } else {
+      await pgRequest("merchant_accounts", {
+        method: "POST",
+        body: {
+          id: `merchant-${Date.now()}-${crypto.randomBytes(5).toString("hex")}`,
+          username_normalized: username,
+          display_name: displayName,
+          role,
+          enabled,
+          password_hash: passwordRecord.passwordHash,
+          password_salt: passwordRecord.passwordSalt,
+          password_algorithm: "scrypt",
+          password_version: 1,
+          must_change_password: true,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+    }
+  } catch (error) {
+    if (error instanceof PgRequestError && error.code === "23505") throw new BusinessError("该用户名已经存在");
+    throw error;
+  }
+  return getAccessManagement(payload);
+}
 /** 读取商品、店铺设置和收款方式；有效商家会话可读取停用数据。 */
 async function getStore(payload) {
   let isMerchant = false;
   if (payload.merchantSessionToken) {
-    await requireMerchantSession(payload);
+    await requireMerchantSession(payload, { roles: BUSINESS_ROLES });
     isMerchant = true;
   }
   const [products, settingsRows, paymentRows] = await Promise.all([
@@ -438,7 +593,7 @@ async function getStore(payload) {
 /** 读取顾客令牌对应订单，或在商家会话通过时读取全部订单。 */
 async function getOrders(payload) {
   if (payload.merchantSessionToken) {
-    await requireMerchantSession(payload);
+    await requireMerchantSession(payload, { roles: BUSINESS_ROLES });
     const rows = await pgRequest("orders?select=*&order=created_at.desc&limit=200");
     return { orders: (Array.isArray(rows) ? rows : []).map((order) => mapOrder(order)) };
   }
@@ -517,7 +672,7 @@ async function updateOrder(payload) {
   const patch = { updated_at: new Date().toISOString() };
   let query = `orders?id=eq.${encodeURIComponent(orderId)}`;
   if (payload.merchantSessionToken) {
-    await requireMerchantSession(payload);
+    await requireMerchantSession(payload, { roles: BUSINESS_ROLES });
     if (["pending", "preparing", "ready", "completed", "cancelled"].includes(payload.status)) patch.status = payload.status;
     if (["waiting", "delivering", "delivered"].includes(payload.deliveryStatus)) {
       patch.delivery_status = payload.deliveryStatus;
@@ -546,7 +701,7 @@ async function updateOrder(payload) {
 
 /** 校验并保存一个商品及库存、上下架状态。 */
 async function saveProduct(payload) {
-  await requireMerchantSession(payload);
+  await requireMerchantSession(payload, { roles: BUSINESS_ROLES });
   const product = payload.product || {};
   const productId = String(product.id || `product-${Date.now()}`).trim();
   const price = Number(product.price);
@@ -579,7 +734,7 @@ async function saveProduct(payload) {
 
 /** 校验并覆盖保存店铺装修设置。 */
 async function saveStoreSettings(payload) {
-  await requireMerchantSession(payload);
+  await requireMerchantSession(payload, { roles: BUSINESS_ROLES });
   const settings = payload.settings || {};
   if (!String(settings.brandName || "").trim() || !String(settings.heroTitle || "").trim()) {
     throw new BusinessError("请填写店铺名称和首页标题");
@@ -620,7 +775,7 @@ function isHttpsUrl(value) {
 
 /** 校验并覆盖保存最多十二个个人收款码。 */
 async function savePaymentMethods(payload) {
-  await requireMerchantSession(payload);
+  await requireMerchantSession(payload, { roles: BUSINESS_ROLES });
   const methods = Array.isArray(payload.paymentMethods) ? payload.paymentMethods.slice(0, 12) : [];
   const normalized = methods.map((method, index) => ({
     id: String(method.id || "").trim(),
@@ -644,7 +799,7 @@ async function savePaymentMethods(payload) {
 
 /** 将网页压缩后的图片写入 CloudBase 云存储。 */
 async function uploadImage(payload) {
-  await requireMerchantSession(payload);
+  await requireMerchantSession(payload, { roles: BUSINESS_ROLES });
   const dataUrl = String(payload.dataUrl || "");
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
   if (!match) throw new BusinessError("图片格式仅支持 JPG、PNG 或 WebP");
@@ -666,6 +821,9 @@ async function handleAction(payload) {
     case "merchantLogout": return merchantLogout(payload);
     case "getMerchantSession": return getMerchantSession(payload);
     case "changeMerchantPassword": return changeMerchantPassword(payload);
+    case "getAccessManagement": return getAccessManagement(payload);
+    case "saveSessionSettings": return saveSessionSettings(payload);
+    case "saveMerchantAccount": return saveMerchantAccount(payload);
     case "getStore": return getStore(payload);
     case "getOrders": return getOrders(payload);
     case "createOrder": return createOrder(payload);
@@ -729,7 +887,7 @@ exports.main = async (event = {}) => {
     const message = error instanceof BusinessError ? error.message : "店铺云服务暂时不可用，请稍后重试";
     // 日志只记录动作和错误类型，禁止输出完整事件、密码、令牌或运行时环境变量。
     console.error("ordering-api failed", { action, errorName: error && error.name, statusCode });
-    const result = { ok: false, message };
+    const result = { ok: false, message, statusCode };
     return httpEvent ? createHttpResponse(statusCode, result) : result;
   }
 };
