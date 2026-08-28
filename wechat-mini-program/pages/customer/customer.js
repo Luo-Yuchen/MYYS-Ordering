@@ -481,10 +481,23 @@ Page({
     wx.navigateTo({ url: "/pages/admin/admin?returnToCustomer=1" });
   },
 
+  /** 使用跳转失败兜底打开商家后台，避免页面栈达到上限后入口无响应。 */
+  navigateToAdmin(url) {
+    wx.navigateTo({
+      url,
+      fail() {
+        wx.redirectTo({ url });
+      },
+    });
+  },
+
   /** 仅允许经营角色从“我的”进入商家工作台。 */
   openAdmin() {
-    if (!this.data.canOpenMerchant) return;
-    wx.navigateTo({ url: "/pages/admin/admin" });
+    if (!this.data.canOpenMerchant) {
+      wx.showToast({ title: "当前账号没有商家端权限", icon: "none" });
+      return;
+    }
+    this.navigateToAdmin("/pages/admin/admin");
   },
 
   /** 主动撤销当前账号会话并刷新“我的”展示。 */
@@ -501,10 +514,37 @@ Page({
     wx.showToast({ title: "已退出登录", icon: "success" });
   },
 
-  /** 从底部导航打开超级管理员专属管理页。 */
-  openManagement() {
-    if (!this.data.canOpenManagement) return;
-    wx.navigateTo({ url: "/pages/admin/admin?view=access" });
+  /** 向 CloudBase 复核超级管理员权限后打开专属管理页。 */
+  async openManagement() {
+    const merchantSessionToken = this.data.merchantSessionToken;
+    if (!merchantSessionToken || !this.data.merchantAccount) {
+      wx.showToast({ title: "请先登录超级管理员账号", icon: "none" });
+      this.navigateToAdmin("/pages/admin/admin?returnToCustomer=1");
+      return;
+    }
+    try {
+      const result = await getMerchantSession(merchantSessionToken);
+      if (result.merchant.role !== "super_admin") {
+        await this.syncAccountSession();
+        wx.showToast({ title: "当前账号没有系统管理权限", icon: "none" });
+        return;
+      }
+      // 以服务端最新角色覆盖本机缓存，避免角色缓存延迟导致入口无法进入。
+      const savedSession = { merchantSessionToken, merchant: result.merchant, expiresAt: result.expiresAt };
+      wx.setStorageSync("manyouyisi-merchant-session-v2", savedSession);
+      getApp().globalData.merchantAccount = result.merchant;
+      getApp().globalData.merchantSessionExpiresAt = result.expiresAt;
+      this.setData({
+        merchantAccount: result.merchant,
+        merchantRoleLabel: ACCOUNT_ROLE_LABELS[result.merchant.role] || result.merchant.role,
+        canOpenMerchant: true,
+        canOpenManagement: true,
+      });
+      this.navigateToAdmin("/pages/admin/admin?view=access");
+    } catch (error) {
+      this.clearAccountSessionState();
+      wx.showToast({ title: error.message || "登录已失效，请重新登录", icon: "none" });
+    }
   },
 
   /** 切换到店自提或配送到家，并重新计算应付金额。 */

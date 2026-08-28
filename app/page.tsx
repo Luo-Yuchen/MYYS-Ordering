@@ -1479,7 +1479,8 @@ export default function Home() {
   async function toggleAdmin() {
     if (isAdmin) {
       setIsAdmin(false);
-      navigateCustomer(merchant?.role === "super_admin" ? "management" : "profile");
+      if (merchant?.role === "super_admin") await openSystemManagement();
+      else navigateCustomer("profile");
       return;
     }
     if (merchantSessionToken && merchant) {
@@ -1514,6 +1515,39 @@ export default function Home() {
     }
     setMerchantAuthMessage("");
     setIsMerchantLoginOpen(true);
+  }
+
+  /** 向 CloudBase 复核超级管理员权限，预载系统管理数据后再进入管理页。 */
+  async function openSystemManagement() {
+    if (!merchantSessionToken || !merchant) {
+      setMerchantAuthMessage("请先登录超级管理员账号");
+      setIsMerchantLoginOpen(true);
+      return;
+    }
+    setAccessManagementMessage("");
+    try {
+      const result = await callOrderingFunction<{ /** 服务端确认后的账号。 */ merchant: MerchantAccount; /** 会话固定到期时间。 */ expiresAt: string }>("getMerchantSession", { merchantSessionToken });
+      if (result.merchant.role !== "super_admin") {
+        persistMerchantSession(merchantSessionToken, result.merchant, result.expiresAt);
+        setCustomerView("profile");
+        setAccessManagementMessage("当前账号没有系统管理权限");
+        return;
+      }
+      // 先更新服务端确认后的账号，再读取管理数据，避免浏览器旧角色缓存拦截跳转。
+      persistMerchantSession(merchantSessionToken, result.merchant, result.expiresAt);
+      await loadAccessManagement(merchantSessionToken);
+      setIsAdmin(false);
+      setCustomerView("management");
+      setSuccessOrderId("");
+      setProfileError("");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "系统管理暂时无法打开";
+      setAccessManagementMessage(message);
+      // 已登录账号仍可进入管理页查看明确错误；401 事件会统一清理会话并打开登录框。
+      setCustomerView("management");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }
 
   /** 校验顾客信息，并通过共享服务生成一条待付款订单。 */
@@ -2927,7 +2961,7 @@ export default function Home() {
                       </div>
                       <div className="customer-account-actions">
                         {canOpenMerchantWorkspace(merchant) ? <button type="button" onClick={() => void toggleAdmin()}>进入商家端</button> : null}
-                        {merchant.role === "super_admin" ? <button type="button" onClick={() => navigateCustomer("management")}>系统管理</button> : null}
+                        {merchant.role === "super_admin" ? <button type="button" onClick={() => void openSystemManagement()}>系统管理</button> : null}
                         <button type="button" onClick={() => void logoutMerchantSession()}>退出登录</button>
                       </div>
                     </>
@@ -3127,7 +3161,7 @@ export default function Home() {
               <small>我的</small>
             </button>
             {merchantSessionToken && merchant?.role === "super_admin" ? (
-              <button type="button" onClick={() => navigateCustomer("management")} className={customerView === "management" ? "nav-active" : ""}>
+              <button type="button" onClick={() => void openSystemManagement()} className={customerView === "management" ? "nav-active" : ""}>
                 <span aria-hidden="true">管</span>
                 <small>管理</small>
               </button>
