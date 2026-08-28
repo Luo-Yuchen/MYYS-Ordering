@@ -8,7 +8,7 @@
   </view>
 
   <view class="admin-content">
-    <view class="metrics-grid">
+    <view wx:if="{{canOpenMerchantWorkspace && !merchantAccount.mustChangePassword}}" class="metrics-grid">
       <view class="metric-card"><text>今日订单</text><strong class="serif">{{orderCount}}</strong></view>
       <view class="metric-card"><text>待处理</text><strong class="serif">{{pendingCount}}</strong></view>
       <view class="metric-card"><text>销售额</text><strong class="serif metric-money">{{revenueText}}</strong></view>
@@ -17,17 +17,17 @@
 
     <view class="admin-order card merchant-auth-card">
       <block wx:if="{{!merchantSessionToken}}">
-        <view class="serif order-customer">商家账号登录</view>
-        <view class="section-description">用户名和密码由 CloudBase PG 数据库统一校验。</view>
+        <view class="serif order-customer">账号登录</view>
+        <view class="section-description">顾客与商家账号均由 CloudBase PG 数据库统一校验。</view>
         <view class="form-field">
-          <view class="field-label">商家用户名</view>
+          <view class="field-label">用户名</view>
           <input class="field-input" value="{{merchantUsername}}" bindinput="updateMerchantUsername" placeholder="admin" />
         </view>
         <view class="form-field">
           <view class="field-label">登录密码</view>
-          <input class="field-input" password value="{{merchantPassword}}" bindinput="updateMerchantPassword" placeholder="请输入商家密码" />
+          <input class="field-input" password value="{{merchantPassword}}" bindinput="updateMerchantPassword" placeholder="请输入登录密码" />
         </view>
-        <button class="primary-button" loading="{{isSyncingPayments}}" bindtap="loginMerchant">登录商家端</button>
+        <button class="primary-button" loading="{{isSyncingPayments}}" bindtap="loginMerchant">登录</button>
       </block>
       <block wx:else>
         <view class="section-heading">
@@ -44,7 +44,7 @@
             <input class="field-input" password value="{{merchantPassword}}" bindinput="updateMerchantPassword" />
           </view>
           <view class="form-field">
-            <view class="field-label">新密码（至少10位）</view>
+            <view class="field-label">新密码（至少6位）</view>
             <input class="field-input" password value="{{merchantNewPassword}}" bindinput="updateMerchantNewPassword" />
           </view>
           <button class="primary-button" loading="{{isSyncingPayments}}" bindtap="changeMerchantPassword">保存新密码</button>
@@ -53,7 +53,7 @@
       <view wx:if="{{paymentMessage}}" class="section-description auth-message">{{paymentMessage}}</view>
     </view>
 
-    <scroll-view class="admin-tabs" scroll-x enable-flex>
+    <scroll-view wx:if="{{canOpenMerchantWorkspace && !merchantAccount.mustChangePassword}}" class="admin-tabs" scroll-x enable-flex>
       <button class="admin-tab {{activeView === 'orders' ? 'admin-tab-active' : ''}}" data-view="orders" bindtap="setActiveView">订单</button>
       <button class="admin-tab {{activeView === 'production' ? 'admin-tab-active' : ''}}" data-view="production" bindtap="setActiveView">备货</button>
       <button class="admin-tab {{activeView === 'products' ? 'admin-tab-active' : ''}}" data-view="products" bindtap="setActiveView">商品</button>
@@ -62,7 +62,7 @@
       <button wx:if="{{canManageAccess}}" class="admin-tab {{activeView === 'access' ? 'admin-tab-active' : ''}}" data-view="access" bindtap="setActiveView">{{isSuperAdmin ? '管理' : '账号权限'}}</button>
     </scroll-view>
 
-    <block wx:if="{{activeView === 'orders'}}">
+    <block wx:if="{{canOpenMerchantWorkspace && !merchantAccount.mustChangePassword && activeView === 'orders'}}">
       <view class="section-heading">
         <view><view class="section-title">今日订单</view><view class="section-description">顾客端提交后会立即出现在这里。</view></view>
       </view>
@@ -108,7 +108,7 @@
       </view>
     </block>
 
-    <block wx:elif="{{activeView === 'production'}}">
+    <block wx:elif="{{canOpenMerchantWorkspace && !merchantAccount.mustChangePassword && activeView === 'production'}}">
       <view class="section-title">今日备货</view>
       <view class="section-description">汇总所有未完成订单，方便安排蒸制数量。</view>
       <view wx:if="{{productionItems.length === 0}}" class="empty-state card">
@@ -123,7 +123,7 @@
       </view>
     </block>
 
-    <block wx:elif="{{activeView === 'products'}}">
+    <block wx:elif="{{canOpenMerchantWorkspace && !merchantAccount.mustChangePassword && activeView === 'products'}}">
       <view class="section-heading">
         <view><view class="section-title">商品管理</view><view class="section-description">修改内容、库存和上下架状态。</view></view>
         <button class="primary-button compact-button" bindtap="addProduct">新增商品</button>
@@ -147,7 +147,7 @@
       </view>
     </block>
 
-    <block wx:elif="{{activeView === 'payments'}}">
+    <block wx:elif="{{canOpenMerchantWorkspace && !merchantAccount.mustChangePassword && activeView === 'payments'}}">
       <view class="section-heading">
         <view><view class="section-title">收款设置</view><view class="section-description">管理多个个人收款码，并同步给网页版和小程序顾客端。</view></view>
         <button class="primary-button compact-button" bindtap="addPaymentMethod">新增收款码</button>
@@ -203,7 +203,7 @@
       </view>
     </block>
 
-    <block wx:elif="{{activeView === 'store'}}">
+    <block wx:elif="{{canOpenMerchantWorkspace && !merchantAccount.mustChangePassword && activeView === 'store'}}">
       <view class="section-heading">
         <view><view class="section-title">店铺装修</view><view class="section-description">顾客端首页内容和背景均可自定义。</view></view>
         <button class="primary-button compact-button" bindtap="editStore">开始编辑</button>
@@ -222,7 +222,7 @@
       <button class="danger-button reset-button" bindtap="resetDemo">恢复全部演示数据</button>
     </block>
 
-    <block wx:else>
+    <block wx:elif="{{canOpenMerchantWorkspace && !merchantAccount.mustChangePassword && activeView === 'access'}}">
       <view class="section-heading">
         <view><view class="section-title">{{isSuperAdmin ? '系统管理' : '账号与权限'}}</view><view class="section-description">{{isSuperAdmin ? '新增、修改、删除账号并分配四级权限。' : '维护商家和顾客账号及会话时长。'}}</view></view>
       </view>
@@ -258,12 +258,16 @@
           </picker>
         </view>
         <view class="form-field">
-          <view class="field-label">{{accountDraft.id ? '重置临时密码（可留空）' : '临时密码（至少10位）'}}</view>
+          <view class="field-label">{{accountDraft.id ? '重置临时密码（可留空）' : '临时密码（至少6位）'}}</view>
           <input class="field-input" password value="{{accountDraft.temporaryPassword}}" disabled="{{accountDraft.id === merchantAccount.id}}" data-field="temporaryPassword" bindinput="updateAccountField" />
         </view>
         <view class="status-row">
           <text class="status-caption">启用账号</text>
           <switch color="#59694d" checked="{{accountDraft.enabled}}" disabled="{{accountDraft.id === merchantAccount.id}}" bindchange="toggleAccountEnabled" />
+        </view>
+        <view wx:if="{{isSuperAdmin}}" class="status-row">
+          <text class="status-caption">首次登录必须修改密码（默认关闭）</text>
+          <switch color="#59694d" checked="{{accountDraft.mustChangePassword}}" bindchange="toggleAccountMustChangePassword" />
         </view>
         <button class="primary-button" loading="{{isSyncingPayments}}" bindtap="saveAccount">{{accountDraft.id ? '保存账号修改' : '创建账号'}}</button>
       </view>
@@ -274,7 +278,7 @@
             <view>
               <view class="serif order-customer">{{item.displayName}}</view>
               <view class="order-meta">@{{item.username}} · {{item.roleLabel}} · {{item.enabled ? '已启用' : '已停用'}}</view>
-              <view class="order-meta">{{item.lastLoginText}}{{item.mustChangePassword ? ' · 下次登录需改密' : ''}}</view>
+              <view class="order-meta">{{item.lastLoginText}}{{item.mustChangePassword ? ' · 下次登录需改密' : ' · 首次改密已关闭'}}</view>
             </view>
 <view class="access-account-actions">
               <button wx:if="{{item.canEdit}}" class="secondary-button compact-button" data-id="{{item.id}}" bindtap="editAccount">编辑</button>

@@ -11,7 +11,7 @@
         <view class="brand-tagline">{{settings.brandTagline}}</view>
       </view>
     </view>
-    <button class="role-button" bindtap="openAdmin">商家端</button>
+    <button class="role-button" bindtap="openAccountEntry">{{merchantSessionToken ? '我的' : '登录'}}</button>
   </view>
 
   <block wx:if="{{activeView === 'home'}}">
@@ -198,6 +198,33 @@
           <view class="profile-status">{{profileSaved ? profileLabels.saved : profileLabels.unsaved}}</view>
         </view>
         <view class="profile-channel-badge">小程序</view>
+      </view>
+
+      <view class="profile-account-card card">
+        <block wx:if="{{merchantSessionToken && merchantAccount}}">
+          <view class="profile-account-identity">
+            <view class="profile-account-mark serif">账</view>
+            <view class="profile-account-copy">
+              <view class="profile-account-name serif">{{merchantAccount.displayName}}</view>
+              <view class="profile-account-meta">@{{merchantAccount.username}} · {{merchantRoleLabel}}</view>
+            </view>
+          </view>
+          <view class="profile-account-actions">
+            <button wx:if="{{canOpenMerchant}}" class="secondary-button compact-button" bindtap="openAdmin">进入商家端</button>
+            <button wx:if="{{canOpenManagement}}" class="secondary-button compact-button" bindtap="openManagement">系统管理</button>
+            <button class="secondary-button compact-button account-logout-button" bindtap="logoutAccount">退出登录</button>
+          </view>
+        </block>
+        <block wx:else>
+          <view class="profile-account-identity">
+            <view class="profile-account-mark serif">账</view>
+            <view class="profile-account-copy">
+              <view class="profile-account-name serif">登录账号</view>
+              <view class="profile-account-meta">顾客与商家使用统一账号入口</view>
+            </view>
+          </view>
+          <button class="secondary-button compact-button" bindtap="openAccountEntry">登录</button>
+        </block>
       </view>
 
       <view class="profile-order-entry card" data-view="orders" bindtap="setActiveView" role="button" aria-label="进入我的订单">

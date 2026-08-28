@@ -104,6 +104,10 @@ Page({
     canManageAccess: false,
     /** 当前账号是否为超级管理员。 */
     isSuperAdmin: false,
+    /** 当前账号是否可以进入商家工作台。 */
+    canOpenMerchantWorkspace: false,
+    /** 登录成功后是否返回顾客端“我的”页面。 */
+    returnToCustomerAfterLogin: false,
     /** 管理员可查看的账号列表。 */
     accessAccounts: [],
     /** 新登录会话使用的有效分钟数。 */
@@ -115,7 +119,7 @@ Page({
     /** 当前账号表单选择的角色下标。 */
     accountRoleIndex: 0,
     /** 新增或编辑账号使用的表单草稿。 */
-    accountDraft: { id: "", username: "", displayName: "", role: "merchant", enabled: true, temporaryPassword: "" },
+    accountDraft: { id: "", username: "", displayName: "", role: "merchant", enabled: true, temporaryPassword: "", mustChangePassword: false },
     /** 账号权限页面的保存与校验提示。 */
     accessMessage: "",
     /** 收款设置同步或保存提示。 */
@@ -124,9 +128,12 @@ Page({
     isSyncingPayments: false,
   },
 
-  /** 接收顾客端底部管理入口传入的目标视图。 */
+  /** 接收顾客端传入的目标视图和登录成功后的返回方式。 */
   onLoad(options) {
-    if (options && options.view === "access") this.setData({ activeView: "access" });
+    this.setData({
+      activeView: options && options.view === "access" ? "access" : "orders",
+      returnToCustomerAfterLogin: Boolean(options && options.returnToCustomer === "1"),
+    });
   },
 
   /** 页面显示时恢复本机会话，并向服务端重新确认账号状态和角色。 */
@@ -143,6 +150,15 @@ Page({
     try {
       const result = await getMerchantSession(merchantSessionToken);
       this.persistMerchantSession(merchantSessionToken, result.merchant, result.expiresAt);
+      if (!result.merchant.mustChangePassword && result.merchant.role === "customer") {
+        wx.showToast({ title: "顾客账号已登录", icon: "success" });
+        this.returnCustomer();
+        return;
+      }
+      if (!result.merchant.mustChangePassword && this.data.returnToCustomerAfterLogin) {
+        this.returnCustomer();
+        return;
+      }
       if (!result.merchant.mustChangePassword) await this.loadCloudData(merchantSessionToken, result.merchant);
     } catch (error) {
       this.clearMerchantSession(error.message || "登录已失效，请重新登录");
@@ -158,6 +174,7 @@ Page({
   persistMerchantSession(merchantSessionToken, merchantAccount, expiresAt) {
     const canManageAccess = ["super_admin", "admin"].includes(merchantAccount.role);
     const isSuperAdmin = merchantAccount.role === "super_admin";
+    const canOpenMerchantWorkspace = ["super_admin", "admin", "merchant"].includes(merchantAccount.role);
     const availableRoleValues = merchantAccount.role === "super_admin"
       ? ["super_admin", "admin", "merchant", "customer"]
       : ["merchant", "customer"];
@@ -173,6 +190,7 @@ Page({
       merchantRoleLabel: MERCHANT_ROLE_LABELS[merchantAccount.role] || merchantAccount.role,
       canManageAccess,
       isSuperAdmin,
+      canOpenMerchantWorkspace,
       availableRoleValues,
       availableRoleLabels: availableRoleValues.map((role) => MERCHANT_ROLE_LABELS[role]),
     });
@@ -195,6 +213,7 @@ Page({
       merchantRoleLabel: "",
       canManageAccess: false,
       isSuperAdmin: false,
+      canOpenMerchantWorkspace: false,
       accessAccounts: [],
       activeView: "orders",
       paymentMessage: message,
@@ -446,13 +465,20 @@ Page({
     try {
       const result = await loginMerchant(merchantUsername, merchantPassword);
       this.persistMerchantSession(result.merchantSessionToken, result.merchant, result.expiresAt);
-      this.setData({ paymentMessage: result.merchant.mustChangePassword ? "请先修改初始密码" : "已登录 CloudBase PG 商家端" });
+      this.setData({ paymentMessage: result.merchant.mustChangePassword ? "请先修改初始密码" : "账号登录成功" });
+      // 统一登录入口成功后先回到“我的”，经营角色再主动进入工作台。
+      if (!result.merchant.mustChangePassword && (result.merchant.role === "customer" || this.data.returnToCustomerAfterLogin)) {
+        this.setData({ merchantPassword: "" });
+        wx.showToast({ title: "登录成功", icon: "success" });
+        this.returnCustomer();
+        return;
+      }
       if (!result.merchant.mustChangePassword) {
         await this.loadCloudData(result.merchantSessionToken, result.merchant);
         this.setData({ merchantPassword: "" });
       }
     } catch (error) {
-      this.clearMerchantSession(error.message || "商家登录失败");
+      this.clearMerchantSession(error.message || "账号登录失败");
     } finally {
       this.setData({ isSyncingPayments: false });
     }
@@ -463,8 +489,8 @@ Page({
     const merchantSessionToken = this.data.merchantSessionToken;
     const currentPassword = this.data.merchantPassword;
     const newPassword = this.data.merchantNewPassword;
-    if (!merchantSessionToken || !currentPassword || newPassword.length < 10) {
-      wx.showToast({ title: "新密码至少需要10位", icon: "none" });
+    if (!merchantSessionToken || !currentPassword || newPassword.length < 6) {
+      wx.showToast({ title: "新密码至少需要6位", icon: "none" });
       return;
     }
     this.setData({ isSyncingPayments: true, paymentMessage: "" });
@@ -561,7 +587,7 @@ Page({
   /** 清空账号表单以创建新账号。 */
   startNewAccount() {
     this.setData({
-      accountDraft: { id: "", username: "", displayName: "", role: "merchant", enabled: true, temporaryPassword: "" },
+      accountDraft: { id: "", username: "", displayName: "", role: "merchant", enabled: true, temporaryPassword: "", mustChangePassword: false },
       accountRoleIndex: Math.max(this.data.availableRoleValues.indexOf("merchant"), 0),
       accessMessage: "",
     });
@@ -573,7 +599,7 @@ Page({
     if (!account || !account.canEdit) return;
     const roleIndex = this.data.availableRoleValues.indexOf(account.role);
     this.setData({
-      accountDraft: { id: account.id, username: account.username, displayName: account.displayName, role: account.role, enabled: account.enabled, temporaryPassword: "" },
+      accountDraft: { id: account.id, username: account.username, displayName: account.displayName, role: account.role, enabled: account.enabled, temporaryPassword: "", mustChangePassword: account.mustChangePassword === true },
       accountRoleIndex: Math.max(roleIndex, 0),
       accessMessage: "",
     });
@@ -596,6 +622,11 @@ Page({
     this.setData({ "accountDraft.enabled": event.detail.value });
   },
 
+  /** 更新账号首次登录必须改密的安全开关。 */
+  toggleAccountMustChangePassword(event) {
+    this.setData({ "accountDraft.mustChangePassword": event.detail.value });
+  },
+
   /** 新增或保存账号，并刷新服务器返回的权限列表。 */
   async saveAccount() {
     const draft = this.data.accountDraft;
@@ -603,19 +634,23 @@ Page({
       this.setData({ accessMessage: "请完整填写用户名和显示名称" });
       return;
     }
-    if (!draft.id && (draft.temporaryPassword || "").length < 10) {
-      this.setData({ accessMessage: "新账号临时密码至少需要 10 位" });
+    if (!draft.id && (draft.temporaryPassword || "").length < 6) {
+      this.setData({ accessMessage: "新账号临时密码至少需要 6 位" });
       return;
     }
     this.setData({ isSyncingPayments: true, accessMessage: "" });
     try {
-      await saveMerchantAccount(this.data.merchantSessionToken, {
+      /** 发送给云函数的账号公开资料和安全选项。 */
+      const accountPayload = {
         id: draft.id,
         username: draft.username,
         displayName: draft.displayName,
         role: draft.role,
         enabled: draft.enabled,
-      }, draft.temporaryPassword || "");
+      };
+      // 只有超级管理员界面会提交首次改密开关，普通管理员请求不携带该字段。
+      if (this.data.isSuperAdmin) accountPayload.mustChangePassword = draft.mustChangePassword === true;
+      await saveMerchantAccount(this.data.merchantSessionToken, accountPayload, draft.temporaryPassword || "");
       await this.loadAccessManagement(this.data.merchantSessionToken);
       this.startNewAccount();
       this.setData({ accessMessage: "账号设置已保存，权限变化会立即撤销旧会话" });

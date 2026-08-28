@@ -1340,3 +1340,49 @@
     transform: none;
   }
 }
+
+/* “我的”页面账号身份与商家端切换卡片。 */
+.profile-account-card {
+  display: flex;
+  margin-top: 24rpx;
+  padding: 26rpx 28rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22rpx;
+  border: 2rpx solid var(--vintage-brown);
+  background: var(--vintage-secondary);
+  box-shadow: 8rpx 8rpx 0 rgba(139, 69, 19, 0.14);
+}
+
+.profile-account-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 18rpx;
+}
+
+.profile-account-mark {
+  display: flex;
+  width: 70rpx;
+  height: 70rpx;
+  flex: 0 0 70rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--vintage-forest);
+  color: var(--vintage-paper);
+  font-size: 28rpx;
+}
+
+.profile-account-copy { min-width: 0; }
+.profile-account-name { overflow: hidden; font-size: 29rpx; text-overflow: ellipsis; white-space: nowrap; }
+.profile-account-meta { margin-top: 6rpx; overflow: hidden; color: #6b5a4a; font-size: 19rpx; text-overflow: ellipsis; white-space: nowrap; }
+.profile-account-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 10rpx; }
+.profile-account-actions .compact-button { margin: 0; }
+.account-logout-button { color: #8b2f27; }
+
+@media (max-width: 360px), (max-height: 700px) {
+  .profile-account-card { align-items: stretch; flex-direction: column; padding: 22rpx; }
+  .profile-account-actions { width: 100%; justify-content: flex-start; }
+  .profile-account-actions .compact-button { flex: 1 1 auto; }
+}

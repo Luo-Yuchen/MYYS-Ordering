@@ -32,8 +32,8 @@ const SUPER_ADMIN_ROLES = ["super_admin"];
 /** 数据库允许保存的全部账号角色。 */
 const ACCOUNT_ROLES = [...BUSINESS_ROLES, "customer"];
 
-/** 商家密码允许的最小长度。 */
-const MERCHANT_PASSWORD_MIN_LENGTH = 10;
+/** 账号密码允许的最小长度。 */
+const MERCHANT_PASSWORD_MIN_LENGTH = 6;
 
 /** 单个运行实例保存的商家登录失败记录。 */
 const merchantLoginAttempts = new Map();
@@ -331,7 +331,7 @@ async function getMerchantSessionDurationMinutes() {
   return value;
 }
 
-/** 使用数据库账号密码登录商家端并按系统配置签发固定时长会话。 */
+/** 使用数据库账号密码登录系统并按系统配置签发固定时长会话。 */
 async function merchantLogin(payload) {
   const username = normalizeUsername(payload.username);
   const password = String(payload.password || "");
@@ -346,7 +346,7 @@ async function merchantLogin(payload) {
     recordLoginFailure(username);
     throw new BusinessError("用户名或密码错误", 401);
   }
-  if (!BUSINESS_ROLES.includes(account.role)) throw new BusinessError("当前账号没有进入商家后台的权限", 403);
+  // 顾客与经营角色共用登录会话，具体功能继续由后续接口按角色鉴权。
   merchantLoginAttempts.delete(username);
   const sessionToken = crypto.randomBytes(32).toString("hex");
   const sessionId = `session-${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
@@ -396,14 +396,14 @@ async function merchantLogout(payload) {
   return { ok: true };
 }
 
-/** 修改商家密码并撤销该账号的全部旧会话。 */
+/** 修改账号密码并撤销该账号的全部旧会话。 */
 async function changeMerchantPassword(payload) {
-  const { account } = await requireMerchantSession(payload, { allowPasswordChange: true, roles: BUSINESS_ROLES });
+  const { account } = await requireMerchantSession(payload, { allowPasswordChange: true, roles: ACCOUNT_ROLES });
   const currentPassword = String(payload.currentPassword || "");
   const newPassword = String(payload.newPassword || "");
   if (!(await verifyPassword(account, currentPassword))) throw new BusinessError("当前密码错误", 403);
   if (newPassword.length < MERCHANT_PASSWORD_MIN_LENGTH || newPassword.length > 128) {
-    throw new BusinessError("新密码至少需要 10 位，且不能超过 128 位");
+    throw new BusinessError("新密码至少需要 6 位，且不能超过 128 位");
   }
   if (newPassword === currentPassword) throw new BusinessError("新密码不能与当前密码相同");
   const passwordRecord = await createPasswordRecord(newPassword);
@@ -484,15 +484,25 @@ async function saveMerchantAccount(payload) {
     throw new BusinessError("请检查用户名、显示名称和角色");
   }
   if (password && (password.length < MERCHANT_PASSWORD_MIN_LENGTH || password.length > 128)) {
-    throw new BusinessError("临时密码至少需要 10 位，且不能超过 128 位");
+    throw new BusinessError("临时密码至少需要 6 位，且不能超过 128 位");
   }
   const targetRows = accountId
     ? await pgRequest(`merchant_accounts?select=*&id=eq.${encodeURIComponent(accountId)}&limit=1`)
     : [];
   const target = Array.isArray(targetRows) ? targetRows[0] : null;
   if (accountId && !target) throw new BusinessError("账号不存在", 404);
-  if (!target && !password) throw new BusinessError("新账号必须设置至少 10 位临时密码");
+  if (!target && !password) throw new BusinessError("新账号必须设置至少 6 位临时密码");
   assertAccountManagementAllowed(actor, target, role, enabled, password);
+  // 首次改密开关仅允许超级管理员调整；普通管理员创建账号时默认关闭。
+  const hasMustChangePasswordSetting = Object.prototype.hasOwnProperty.call(draft, "mustChangePassword");
+  if (actor.role !== "super_admin" && hasMustChangePasswordSetting) {
+    throw new BusinessError("仅超级管理员可以设置首次登录改密", 403);
+  }
+  const nextMustChangePassword = actor.role === "super_admin"
+    ? (hasMustChangePasswordSetting
+      ? draft.mustChangePassword === true
+      : Boolean(target && target.must_change_password === true))
+    : Boolean(target && target.must_change_password === true);
 
   const now = new Date().toISOString();
   const passwordRecord = password ? await createPasswordRecord(password) : null;
@@ -503,6 +513,7 @@ async function saveMerchantAccount(payload) {
         display_name: displayName,
         role,
         enabled,
+        must_change_password: nextMustChangePassword,
         updated_at: now,
       };
       if (passwordRecord) {
@@ -510,10 +521,9 @@ async function saveMerchantAccount(payload) {
         patch.password_salt = passwordRecord.passwordSalt;
         patch.password_algorithm = "scrypt";
         patch.password_version = Number(target.password_version || 1) + 1;
-        patch.must_change_password = true;
       }
       await pgRequest(`merchant_accounts?id=eq.${encodeURIComponent(target.id)}`, { method: "PATCH", body: patch });
-      if (target.role !== role || target.enabled !== enabled || passwordRecord) {
+      if (target.role !== role || target.enabled !== enabled || target.must_change_password !== nextMustChangePassword || passwordRecord) {
         await pgRequest(`merchant_sessions?merchant_id=eq.${encodeURIComponent(target.id)}&revoked_at=is.null`, {
           method: "PATCH",
           body: { revoked_at: now },
@@ -532,7 +542,7 @@ async function saveMerchantAccount(payload) {
           password_salt: passwordRecord.passwordSalt,
           password_algorithm: "scrypt",
           password_version: 1,
-          must_change_password: true,
+          must_change_password: nextMustChangePassword,
           created_at: now,
           updated_at: now,
         },

@@ -168,3 +168,37 @@ test("超级管理员管理页提供完整账号 CRUD 和权限保护", async ()
   assert.match(miniAdmin, /deleteAccount\(event\)/);
   assert.match(miniAdminView, /bindtap="deleteAccount"/);
 });
+
+test("统一账号登录按四级角色显示正确入口", async () => {
+  const [page, css, cloudFunction, miniCustomer, miniCustomerView, miniAdmin, miniAdminView] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../cloudfunctions/ordering-api/index.js", import.meta.url), "utf8"),
+    readFile(new URL("../wechat-mini-program/pages/customer/customer.js", import.meta.url), "utf8"),
+    readFile(new URL("../wechat-mini-program/pages/customer/customer.wxml", import.meta.url), "utf8"),
+    readFile(new URL("../wechat-mini-program/pages/admin/admin.js", import.meta.url), "utf8"),
+    readFile(new URL("../wechat-mini-program/pages/admin/admin.wxml", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(cloudFunction, /MERCHANT_PASSWORD_MIN_LENGTH = 6/);
+  assert.match(cloudFunction, /顾客与经营角色共用登录会话/);
+  assert.doesNotMatch(cloudFunction, /当前账号没有进入商家后台的权限/);
+  assert.match(page, /MERCHANT_WORKSPACE_ROLES/);
+  assert.match(page, /customer-account-panel/);
+  assert.match(page, /进入商家端/);
+  assert.match(page, /merchantSessionToken \? "我的账号" : "登录"/);
+  assert.match(css, /customer-account-identity/);
+  assert.match(miniCustomer, /syncAccountSession/);
+  assert.match(miniCustomer, /canOpenMerchant/);
+  assert.match(miniCustomerView, /openAccountEntry/);
+  assert.match(miniCustomerView, /profile-account-card/);
+  assert.match(miniCustomerView, /进入商家端/);
+  assert.match(miniAdmin, /returnToCustomerAfterLogin/);
+  assert.match(miniAdminView, /canOpenMerchantWorkspace/);
+  assert.match(miniAdminView, /新密码（至少6位）/);
+  assert.match(cloudFunction, /仅超级管理员可以设置首次登录改密/);
+  assert.match(cloudFunction, /must_change_password: nextMustChangePassword/);
+  assert.match(page, /首次登录必须修改密码（默认关闭）/);
+  assert.match(miniAdmin, /toggleAccountMustChangePassword/);
+  assert.match(miniAdminView, /首次登录必须修改密码（默认关闭）/);
+});

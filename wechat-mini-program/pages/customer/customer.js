@@ -14,10 +14,27 @@ const {
 } = require("../../utils/store");
 const {
   createRemoteOrder,
+  getMerchantSession,
   getRemoteOrders,
   getRemoteStore,
+  logoutMerchant,
   submitRemotePayment,
 } = require("../../utils/api");
+
+/** 可切换到商家工作台的经营角色。 */
+const MERCHANT_WORKSPACE_ROLES = ["super_admin", "admin", "merchant"];
+
+/** 账号角色对应的中文名称。 */
+const ACCOUNT_ROLE_LABELS = {
+  /** 超级管理员角色名称。 */
+  super_admin: "超级管理员",
+  /** 普通管理员角色名称。 */
+  admin: "普通管理员",
+  /** 商家角色名称。 */
+  merchant: "商家",
+  /** 顾客角色名称。 */
+  customer: "顾客",
+};
 
 /** 订单制作状态对应的顾客端文案。 */
 const STATUS_LABELS = {
@@ -99,6 +116,14 @@ Page({
     serviceMessage: "",
     /** 是否正在重新连接 CloudBase 共享服务。 */
     isSyncingRemote: false,
+    /** 当前设备保存的有效账号会话令牌。 */
+    merchantSessionToken: "",
+    /** 当前登录账号的公开信息。 */
+    merchantAccount: null,
+    /** 当前登录账号角色的中文名称。 */
+    merchantRoleLabel: "",
+    /** 当前账号是否允许进入商家工作台。 */
+    canOpenMerchant: false,
     /** 当前设备是否存在有效的超级管理员会话。 */
     canOpenManagement: false,
     /** 配送方式。 */
@@ -164,18 +189,14 @@ Page({
   /** 页面显示时同步商品、购物车、订单和店铺设置。 */
   async onShow() {
     const profile = wx.getStorageSync("manyouyisi-mini-profile-v1") || {};
-    const app = getApp();
-    const canOpenManagement = Boolean(app.globalData.merchantSessionToken
-      && app.globalData.merchantAccount
-      && app.globalData.merchantAccount.role === "super_admin"
-      && new Date(app.globalData.merchantSessionExpiresAt).getTime() > Date.now());
+    await this.syncAccountSession();
     this.setData({
       profileName: profile.name || "",
       profilePhone: profile.phone || "",
       profileAddress: profile.address || "",
       profileNote: profile.note || "",
       profileSaved: Boolean(profile.name || profile.phone || profile.address || profile.note),
-      canOpenManagement,
+
       customerName: this.data.customerName || profile.name || "",
       phone: this.data.phone || profile.phone || "",
       address: this.data.address || profile.address || "",
@@ -184,6 +205,45 @@ Page({
     });
     this.refreshPageData();
     await this.syncRemoteData();
+  },
+
+  /** 向服务端确认本机账号会话，并按角色刷新“我的”入口。 */
+  async syncAccountSession() {
+    const app = getApp();
+    const merchantSessionToken = app.globalData.merchantSessionToken || "";
+    const merchantAccount = app.globalData.merchantAccount || null;
+    const expiresAt = app.globalData.merchantSessionExpiresAt || "";
+    if (!merchantSessionToken || !merchantAccount || new Date(expiresAt).getTime() <= Date.now()) {
+      this.clearAccountSessionState();
+      return;
+    }
+    try {
+      const result = await getMerchantSession(merchantSessionToken);
+      // 以服务端最新角色覆盖本机缓存，避免角色调整后入口仍然显示错误。
+      const savedSession = { merchantSessionToken, merchant: result.merchant, expiresAt: result.expiresAt };
+      wx.setStorageSync("manyouyisi-merchant-session-v2", savedSession);
+      app.globalData.merchantAccount = result.merchant;
+      app.globalData.merchantSessionExpiresAt = result.expiresAt;
+      this.setData({
+        merchantSessionToken,
+        merchantAccount: result.merchant,
+        merchantRoleLabel: ACCOUNT_ROLE_LABELS[result.merchant.role] || result.merchant.role,
+        canOpenMerchant: MERCHANT_WORKSPACE_ROLES.includes(result.merchant.role),
+        canOpenManagement: result.merchant.role === "super_admin",
+      });
+    } catch {
+      this.clearAccountSessionState();
+    }
+  },
+
+  /** 清理当前设备和页面中的账号登录状态。 */
+  clearAccountSessionState() {
+    wx.removeStorageSync("manyouyisi-merchant-session-v2");
+    const app = getApp();
+    app.globalData.merchantSessionToken = "";
+    app.globalData.merchantAccount = null;
+    app.globalData.merchantSessionExpiresAt = "";
+    this.setData({ merchantSessionToken: "", merchantAccount: null, merchantRoleLabel: "", canOpenMerchant: false, canOpenManagement: false });
   },
 
   /** 顾客点击提示条时重新拉取 CloudBase 云端数据。 */
@@ -412,9 +472,33 @@ Page({
     wx.pageScrollTo({ selector: "#menu", duration: 300 });
   },
 
-  /** 打开商家端预览页面。 */
+  /** 打开统一账号登录页；已登录时直接切换到“我的”。 */
+  openAccountEntry() {
+    if (this.data.merchantSessionToken && this.data.merchantAccount) {
+      this.setData({ activeView: "profile" });
+      return;
+    }
+    wx.navigateTo({ url: "/pages/admin/admin?returnToCustomer=1" });
+  },
+
+  /** 仅允许经营角色从“我的”进入商家工作台。 */
   openAdmin() {
+    if (!this.data.canOpenMerchant) return;
     wx.navigateTo({ url: "/pages/admin/admin" });
+  },
+
+  /** 主动撤销当前账号会话并刷新“我的”展示。 */
+  async logoutAccount() {
+    const merchantSessionToken = this.data.merchantSessionToken;
+    if (merchantSessionToken) {
+      try {
+        await logoutMerchant(merchantSessionToken);
+      } catch {
+        // 退出页面不依赖网络成功，服务端会话仍会在固定时间失效。
+      }
+    }
+    this.clearAccountSessionState();
+    wx.showToast({ title: "已退出登录", icon: "success" });
   },
 
   /** 从底部导航打开超级管理员专属管理页。 */
