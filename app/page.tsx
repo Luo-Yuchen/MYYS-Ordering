@@ -823,7 +823,7 @@ export default function Home() {
   /** 当前商家会话的固定到期时间。 */
   const [merchantSessionExpiresAt, setMerchantSessionExpiresAt] = useState("");
   /** 商家登录用户名。 */
-  const [merchantUsername, setMerchantUsername] = useState("admin");
+  const [merchantUsername, setMerchantUsername] = useState("");
   /** 商家登录或首次改密时填写的当前密码。 */
   const [merchantPassword, setMerchantPassword] = useState("");
   /** 商家首次登录后填写的新密码。 */

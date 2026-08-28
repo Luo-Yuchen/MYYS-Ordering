@@ -187,6 +187,8 @@ test("统一账号登录按四级角色显示正确入口", async () => {
   assert.match(page, /customer-account-panel/);
   assert.match(page, /进入商家端/);
   assert.match(page, /merchantSessionToken \? "我的账号" : "登录"/);
+  assert.match(page, /setMerchantUsername\] = useState\(""\)/);
+  assert.doesNotMatch(page, /setMerchantUsername\] = useState\("admin"\)/);
   assert.match(css, /customer-account-identity/);
   assert.match(miniCustomer, /syncAccountSession/);
   assert.match(miniCustomer, /canOpenMerchant/);
@@ -194,6 +196,9 @@ test("统一账号登录按四级角色显示正确入口", async () => {
   assert.match(miniCustomerView, /profile-account-card/);
   assert.match(miniCustomerView, /进入商家端/);
   assert.match(miniAdmin, /returnToCustomerAfterLogin/);
+  assert.match(miniAdmin, /merchantUsername: "",/);
+  assert.doesNotMatch(miniAdminView, /placeholder="admin"/);
+  assert.match(miniAdminView, /placeholder="请输入用户名"/);
   assert.match(miniAdminView, /canOpenMerchantWorkspace/);
   assert.match(miniAdminView, /新密码（至少6位）/);
   assert.match(cloudFunction, /仅超级管理员可以设置首次登录改密/);

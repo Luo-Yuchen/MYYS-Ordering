@@ -87,7 +87,7 @@ Page({
     /** 当前收款方式表单草稿。 */
     paymentDraft: {},
     /** 商家登录用户名。 */
-    merchantUsername: "admin",
+    merchantUsername: "",
     /** 商家登录或首次改密时填写的当前密码。 */
     merchantPassword: "",
     /** 商家首次登录后填写的新密码。 */

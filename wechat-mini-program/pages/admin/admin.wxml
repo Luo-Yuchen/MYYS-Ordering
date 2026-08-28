@@ -21,7 +21,7 @@
         <view class="section-description">顾客与商家账号均由 CloudBase PG 数据库统一校验。</view>
         <view class="form-field">
           <view class="field-label">用户名</view>
-          <input class="field-input" value="{{merchantUsername}}" bindinput="updateMerchantUsername" placeholder="admin" />
+          <input class="field-input" value="{{merchantUsername}}" bindinput="updateMerchantUsername" placeholder="请输入用户名" />
         </view>
         <view class="form-field">
           <view class="field-label">登录密码</view>
