@@ -1524,29 +1524,35 @@ export default function Home() {
       setIsMerchantLoginOpen(true);
       return;
     }
-    setAccessManagementMessage("");
+    if (merchant.role !== "super_admin") {
+      setBackendMessage("当前账号没有系统管理权限");
+      setCustomerView("profile");
+      return;
+    }
+    // 先立即完成页面切换，避免 CloudBase 网络请求期间按钮看起来没有响应。
+    setIsAdmin(false);
+    setCustomerView("management");
+    setSuccessOrderId("");
+    setProfileError("");
+    setAccessManagementMessage("正在同步最新账号和权限设置…");
+    window.scrollTo({ top: 0, behavior: "smooth" });
     try {
       const result = await callOrderingFunction<{ /** 服务端确认后的账号。 */ merchant: MerchantAccount; /** 会话固定到期时间。 */ expiresAt: string }>("getMerchantSession", { merchantSessionToken });
       if (result.merchant.role !== "super_admin") {
         persistMerchantSession(merchantSessionToken, result.merchant, result.expiresAt);
         setCustomerView("profile");
-        setAccessManagementMessage("当前账号没有系统管理权限");
+        setBackendMessage("当前账号没有系统管理权限");
         return;
       }
-      // 先更新服务端确认后的账号，再读取管理数据，避免浏览器旧角色缓存拦截跳转。
+      // 页面进入后再以服务端最新角色覆盖本机缓存并刷新管理数据。
       persistMerchantSession(merchantSessionToken, result.merchant, result.expiresAt);
       await loadAccessManagement(merchantSessionToken);
-      setIsAdmin(false);
-      setCustomerView("management");
-      setSuccessOrderId("");
-      setProfileError("");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      setAccessManagementMessage("");
+      setBackendMessage("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "系统管理暂时无法打开";
       setAccessManagementMessage(message);
-      // 已登录账号仍可进入管理页查看明确错误；401 事件会统一清理会话并打开登录框。
-      setCustomerView("management");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      // 页面保持可见并展示明确错误；401 事件会统一清理会话并打开登录框。
     }
   }
 

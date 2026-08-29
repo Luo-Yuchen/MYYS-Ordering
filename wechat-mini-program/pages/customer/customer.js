@@ -514,37 +514,20 @@ Page({
     wx.showToast({ title: "已退出登录", icon: "success" });
   },
 
-  /** 向 CloudBase 复核超级管理员权限后打开专属管理页。 */
-  async openManagement() {
+  /** 立即打开超级管理员专属管理页，由后台页统一复核云端权限。 */
+  openManagement() {
     const merchantSessionToken = this.data.merchantSessionToken;
     if (!merchantSessionToken || !this.data.merchantAccount) {
       wx.showToast({ title: "请先登录超级管理员账号", icon: "none" });
       this.navigateToAdmin("/pages/admin/admin?returnToCustomer=1");
       return;
     }
-    try {
-      const result = await getMerchantSession(merchantSessionToken);
-      if (result.merchant.role !== "super_admin") {
-        await this.syncAccountSession();
-        wx.showToast({ title: "当前账号没有系统管理权限", icon: "none" });
-        return;
-      }
-      // 以服务端最新角色覆盖本机缓存，避免角色缓存延迟导致入口无法进入。
-      const savedSession = { merchantSessionToken, merchant: result.merchant, expiresAt: result.expiresAt };
-      wx.setStorageSync("manyouyisi-merchant-session-v2", savedSession);
-      getApp().globalData.merchantAccount = result.merchant;
-      getApp().globalData.merchantSessionExpiresAt = result.expiresAt;
-      this.setData({
-        merchantAccount: result.merchant,
-        merchantRoleLabel: ACCOUNT_ROLE_LABELS[result.merchant.role] || result.merchant.role,
-        canOpenMerchant: true,
-        canOpenManagement: true,
-      });
-      this.navigateToAdmin("/pages/admin/admin?view=access");
-    } catch (error) {
-      this.clearAccountSessionState();
-      wx.showToast({ title: error.message || "登录已失效，请重新登录", icon: "none" });
+    if (this.data.merchantAccount.role !== "super_admin") {
+      wx.showToast({ title: "当前账号没有系统管理权限", icon: "none" });
+      return;
     }
+    // 后台页 onShow 会向 CloudBase 重新确认会话和角色，入口无需等待网络请求。
+    this.navigateToAdmin("/pages/admin/admin?view=access");
   },
 
   /** 切换到店自提或配送到家，并重新计算应付金额。 */
