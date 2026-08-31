@@ -155,11 +155,20 @@ test("超级管理员管理页提供完整账号 CRUD 和权限保护", async ()
   ]);
 
   assert.match(page, /customerView === "management"/);
+  assert.match(page, /type ManagementAccessState = "idle" \| "checking" \| "ready" \| "expired" \| "forbidden" \| "error"/);
   assert.match(page, /账号、角色与会话/);
+  assert.match(page, /管理员登录已过期/);
+  assert.match(page, /成功后会自动回到本页/);
+  assert.match(page, /function formatDateTime\(value: string\)/);
   assert.match(page, /deleteMerchantAccount/);
   assert.match(page, /确认删除/);
   assert.match(page, /merchant\?\.role === "super_admin"/);
   assert.match(page, /async function openSystemManagement\(\)[\s\S]*setCustomerView\("management"\)[\s\S]*"getMerchantSession"[\s\S]*await loadAccessManagement\(merchantSessionToken\)/);
+  assert.match(page, /\{customerView === "management" \? \(/);
+  assert.doesNotMatch(page, /customerView === "management" && merchantSessionToken/);
+  assert.match(page, /const shouldReturnToManagement = customerView === "management"/);
+  assert.match(page, /shouldReturnToManagement[\s\S]*result\.merchant\.role === "super_admin"[\s\S]*await loadAccessManagement\(result\.merchantSessionToken\)[\s\S]*setManagementAccessState\("ready"\)/);
+  assert.match(page, /clearMerchantSessionState\(preserveManagementView\)/);
   assert.match(page, /onClick=\{\(\) => void openSystemManagement\(\)\}>系统管理/);
   assert.match(cloudFunction, /roles: SUPER_ADMIN_ROLES/);
   assert.match(cloudFunction, /不能删除当前登录的超级管理员账号/);

@@ -293,6 +293,9 @@ type StoredMerchantSession = {
 /** 顾客端页面标签。 */
 type CustomerView = "shop" | "cart" | "profile" | "profile-details" | "orders" | "management";
 
+/** 超级管理员管理页的会话与权限校验状态。 */
+type ManagementAccessState = "idle" | "checking" | "ready" | "expired" | "forbidden" | "error";
+
 /** 保存在当前设备中的顾客常用资料。 */
 type CustomerProfile = {
   /** 顾客姓名或常用称呼。 */
@@ -541,6 +544,20 @@ async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Pro
 /** 将金额格式化为人民币展示。 */
 function formatMoney(value: number) {
   return `¥${value.toFixed(value % 1 === 0 ? 0 : 1)}`;
+}
+
+/** 将 CloudBase 返回的时间格式化为中文年月日和时分。 */
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 /** 生成新增收款方式使用的本机唯一编号。 */
@@ -846,6 +863,8 @@ export default function Home() {
   const [accessManagementMessage, setAccessManagementMessage] = useState("");
   /** 账号权限页面是否正在提交数据。 */
   const [isSavingAccessManagement, setIsSavingAccessManagement] = useState(false);
+  /** 系统管理页当前的会话与权限校验状态。 */
+  const [managementAccessState, setManagementAccessState] = useState<ManagementAccessState>("idle");
   /** 顾客资料二级页面的校验提示。 */
   const [profileError, setProfileError] = useState("");
 
@@ -906,24 +925,27 @@ export default function Home() {
     if (!merchantSessionToken || !merchantSessionExpiresAt) return;
     const remaining = new Date(merchantSessionExpiresAt).getTime() - Date.now();
     if (remaining <= 0) {
-      queueMicrotask(() => clearMerchantSessionState());
+      queueMicrotask(() => clearMerchantSessionState(customerView === "management"));
       return;
     }
-    const timer = window.setTimeout(() => clearMerchantSessionState(), remaining);
+    const timer = window.setTimeout(() => clearMerchantSessionState(customerView === "management"), remaining);
     return () => window.clearTimeout(timer);
-  }, [merchantSessionExpiresAt, merchantSessionToken]);
+  }, [customerView, merchantSessionExpiresAt, merchantSessionToken]);
 
   useEffect(() => {
     /** 统一处理任一后台接口返回的会话失效事件。 */
     function handleMerchantSessionInvalid(event: Event) {
       const message = event instanceof CustomEvent && typeof event.detail === "string" ? event.detail : "登录已失效，请重新登录";
-      clearMerchantSessionState();
+      const preserveManagementView = customerView === "management";
+      // 管理页会话失效时保留页面外壳，避免用户看到无提示的跳转。
+      clearMerchantSessionState(preserveManagementView);
+      if (preserveManagementView) setAccessManagementMessage(message);
       setMerchantAuthMessage(message);
       setIsMerchantLoginOpen(true);
     }
     window.addEventListener("manyouyisi-merchant-session-invalid", handleMerchantSessionInvalid);
     return () => window.removeEventListener("manyouyisi-merchant-session-invalid", handleMerchantSessionInvalid);
-  }, []);
+  }, [customerView]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -1245,8 +1267,8 @@ export default function Home() {
     setMerchant(account);
   }
 
-  /** 清除当前设备和页面中的后台会话信息。 */
-  function clearMerchantSessionState() {
+  /** 清除当前设备和页面中的后台会话信息；可保留管理页用于原地重新登录。 */
+  function clearMerchantSessionState(preserveManagementView = false) {
     window.localStorage.removeItem(MERCHANT_SESSION_STORAGE_KEY);
     setMerchantSessionToken("");
     setMerchantSessionExpiresAt("");
@@ -1254,7 +1276,12 @@ export default function Home() {
     setMerchantAccounts([]);
     setIsAdmin(false);
     setAdminView("orders");
-    // 会话失效后立即离开超级管理员页面，避免继续展示缓存中的账号资料。
+    if (preserveManagementView) {
+      // 敏感账号数据已清除，仅保留不含数据的管理页登录提示。
+      setManagementAccessState("expired");
+      return;
+    }
+    setManagementAccessState("idle");
     setCustomerView((current) => current === "management" ? "shop" : current);
   }
 
@@ -1290,6 +1317,7 @@ export default function Home() {
   async function loginMerchant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const username = merchantUsername.trim().toLowerCase();
+    const shouldReturnToManagement = customerView === "management";
     if (!username || !merchantPassword) {
       setMerchantAuthMessage("请输入用户名和密码");
       return;
@@ -1298,20 +1326,44 @@ export default function Home() {
     setMerchantAuthMessage("");
     try {
       const result = await callOrderingFunction<MerchantLoginResponse>("merchantLogin", { username, password: merchantPassword });
-      // 登录后统一回到“我的”展示身份，经营角色再由用户主动切换到商家端。
-      if (!result.merchant.mustChangePassword && canOpenMerchantWorkspace(result.merchant)) {
-        await loadMerchantWorkspace(result.merchantSessionToken, result.merchant);
-      }
+      // 先保存新会话，确保管理页后续请求和界面条件使用同一份账号状态。
       persistMerchantSession(result.merchantSessionToken, result.merchant, result.expiresAt);
       setMerchantUsername(result.merchant.username);
       setIsAdmin(false);
-      setCustomerView("profile");
-      setIsMerchantLoginOpen(false);
       setBackendMessage("");
+
+      if (shouldReturnToManagement) {
+        if (result.merchant.mustChangePassword) {
+          setManagementAccessState("checking");
+          setAccessManagementMessage("请先修改初始密码，完成后重新登录即可进入系统管理");
+        } else if (result.merchant.role === "super_admin") {
+          setManagementAccessState("checking");
+          setAccessManagementMessage("正在加载账号权限和系统设置…");
+          try {
+            await loadAccessManagement(result.merchantSessionToken);
+            setManagementAccessState("ready");
+            setAccessManagementMessage("");
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "系统管理数据加载失败";
+            setManagementAccessState((current) => current === "expired" ? current : "error");
+            setAccessManagementMessage(message);
+          }
+        } else {
+          setManagementAccessState("forbidden");
+          setAccessManagementMessage("当前账号没有超级管理员权限");
+        }
+      } else if (!result.merchant.mustChangePassword && canOpenMerchantWorkspace(result.merchant)) {
+        await loadMerchantWorkspace(result.merchantSessionToken, result.merchant);
+        setCustomerView("profile");
+      } else {
+        setCustomerView("profile");
+      }
+      setIsMerchantLoginOpen(false);
       if (!result.merchant.mustChangePassword) setMerchantPassword("");
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error) {
-      clearMerchantSessionState();
+      clearMerchantSessionState(shouldReturnToManagement);
+      if (shouldReturnToManagement) setAccessManagementMessage("登录验证失败，请检查账号密码后重试");
       setMerchantAuthMessage(error instanceof Error ? error.message : "账号登录失败");
     } finally {
       setIsMerchantAuthenticating(false);
@@ -1519,40 +1571,46 @@ export default function Home() {
 
   /** 向 CloudBase 复核超级管理员权限，预载系统管理数据后再进入管理页。 */
   async function openSystemManagement() {
+    // 先固定进入管理页外壳，后续所有校验结果都在当前页面给出明确反馈。
+    setIsAdmin(false);
+    setCustomerView("management");
+    setSuccessOrderId("");
+    setProfileError("");
+    setManagementAccessState("checking");
+    setAccessManagementMessage("正在验证超级管理员会话…");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
     if (!merchantSessionToken || !merchant) {
+      setManagementAccessState("expired");
+      setAccessManagementMessage("请登录超级管理员账号后继续");
       setMerchantAuthMessage("请先登录超级管理员账号");
       setIsMerchantLoginOpen(true);
       return;
     }
     if (merchant.role !== "super_admin") {
-      setBackendMessage("当前账号没有系统管理权限");
-      setCustomerView("profile");
+      setManagementAccessState("forbidden");
+      setAccessManagementMessage("当前账号没有超级管理员权限");
       return;
     }
-    // 先立即完成页面切换，避免 CloudBase 网络请求期间按钮看起来没有响应。
-    setIsAdmin(false);
-    setCustomerView("management");
-    setSuccessOrderId("");
-    setProfileError("");
-    setAccessManagementMessage("正在同步最新账号和权限设置…");
-    window.scrollTo({ top: 0, behavior: "smooth" });
     try {
       const result = await callOrderingFunction<{ /** 服务端确认后的账号。 */ merchant: MerchantAccount; /** 会话固定到期时间。 */ expiresAt: string }>("getMerchantSession", { merchantSessionToken });
       if (result.merchant.role !== "super_admin") {
         persistMerchantSession(merchantSessionToken, result.merchant, result.expiresAt);
-        setCustomerView("profile");
-        setBackendMessage("当前账号没有系统管理权限");
+        setManagementAccessState("forbidden");
+        setAccessManagementMessage("当前账号没有超级管理员权限");
         return;
       }
       // 页面进入后再以服务端最新角色覆盖本机缓存并刷新管理数据。
       persistMerchantSession(merchantSessionToken, result.merchant, result.expiresAt);
       await loadAccessManagement(merchantSessionToken);
+      setManagementAccessState("ready");
       setAccessManagementMessage("");
       setBackendMessage("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "系统管理暂时无法打开";
+      setManagementAccessState((current) => current === "expired" ? current : "error");
       setAccessManagementMessage(message);
-      // 页面保持可见并展示明确错误；401 事件会统一清理会话并打开登录框。
+      // 页面保持可见并展示明确错误；会话失效事件会进一步切换为重新登录状态。
     }
   }
 
@@ -2044,6 +2102,51 @@ export default function Home() {
     }
     if (order.status === "ready" && order.fulfillment === "pickup") return { status: "completed", label: "确认已取餐" };
     return null;
+  }
+
+  /** 渲染系统管理页在校验、过期、无权限或网络异常时的稳定反馈。 */
+  function renderManagementAccessState() {
+    let visibleState = managementAccessState;
+    if (!merchantSessionToken || !merchant) visibleState = "expired";
+    else if (merchant.role !== "super_admin") visibleState = "forbidden";
+
+    if (visibleState === "idle" || visibleState === "checking") {
+      return (
+        <article className="mt-8 rounded-[2rem] border border-[#b8893d] bg-amber-50 p-7 md:p-9" role="status" aria-live="polite">
+          <p className="text-sm text-amber-900">正在连接 CloudBase</p>
+          <h2 className="mt-2 font-serif text-2xl md:text-3xl">正在验证管理员权限</h2>
+          <p className="mt-3 text-sm leading-7 text-stone-600">{accessManagementMessage || "正在读取账号权限和系统设置，请稍候…"}</p>
+        </article>
+      );
+    }
+
+    const title = visibleState === "expired"
+      ? "管理员登录已过期"
+      : visibleState === "forbidden"
+        ? "当前账号无系统管理权限"
+        : "系统管理暂时无法加载";
+    const description = accessManagementMessage || (visibleState === "expired"
+      ? "请重新登录超级管理员账号，成功后会自动回到本页。"
+      : visibleState === "forbidden"
+        ? "只有超级管理员可以维护账号、角色和全局会话设置。"
+        : "CloudBase 网络或系统设置读取失败，请保留当前页面后重试。") ;
+
+    return (
+      <article className="mt-8 rounded-[2rem] border border-[#b84a43] bg-[#faf6f1] p-7 md:p-9" role="alert">
+        <p className="text-sm text-[#8b2f27]">系统权限中心</p>
+        <h2 className="mt-2 font-serif text-2xl md:text-3xl">{title}</h2>
+        <p className="mt-3 text-sm leading-7 text-stone-600">{description}</p>
+        <div className="mt-6 flex flex-wrap gap-3">
+          {visibleState === "expired" ? (
+            <button type="button" onClick={() => { setMerchantAuthMessage(""); setIsMerchantLoginOpen(true); }} className="rounded-full bg-stone-800 px-7 py-3 font-medium text-stone-50">重新登录</button>
+          ) : visibleState === "forbidden" ? (
+            <button type="button" onClick={() => navigateCustomer("profile")} className="rounded-full border border-stone-300 px-7 py-3 font-medium">返回我的</button>
+          ) : (
+            <button type="button" onClick={() => void openSystemManagement()} className="rounded-full bg-[#59694d] px-7 py-3 font-medium text-white">重新加载</button>
+          )}
+        </div>
+      </article>
+    );
   }
 
   /** 渲染管理员账号增删改查、权限分配和会话设置的统一内容。 */
@@ -3017,7 +3120,7 @@ export default function Home() {
               </section>
             ) : null}
 
-            {customerView === "management" && merchantSessionToken && merchant?.role === "super_admin" ? (
+            {customerView === "management" ? (
               <section className="management-page mx-auto max-w-6xl px-5 py-8 md:px-12 md:py-12">
                 <div className="management-masthead">
                   <div>
@@ -3031,21 +3134,25 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="management-role-strip">
-                  <div>
-                    <span className="management-role-mark" aria-hidden="true">管</span>
-                    <span>
-                      <strong>{merchant.displayName}</strong>
-                      <small>@{merchant.username} · {MERCHANT_ROLE_LABELS[merchant.role]}</small>
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <button type="button" onClick={() => void toggleAdmin()} className="rounded-full border border-[#9a4811] px-5 py-2 text-sm text-[#7b390d]">进入商家工作台</button>
-                    <button type="button" onClick={() => void logoutMerchantSession()} className="rounded-full border border-[#a23f35] px-5 py-2 text-sm text-[#8b2f27]">退出管理员</button>
-                  </div>
-                </div>
+                {managementAccessState === "ready" && merchantSessionToken && merchant?.role === "super_admin" ? (
+                  <>
+                    <div className="management-role-strip">
+                      <div>
+                        <span className="management-role-mark" aria-hidden="true">管</span>
+                        <span>
+                          <strong>{merchant.displayName}</strong>
+                          <small>@{merchant.username} · {MERCHANT_ROLE_LABELS[merchant.role]}</small>
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button type="button" onClick={() => void toggleAdmin()} className="rounded-full border border-[#9a4811] px-5 py-2 text-sm text-[#7b390d]">进入商家工作台</button>
+                        <button type="button" onClick={() => void logoutMerchantSession()} className="rounded-full border border-[#a23f35] px-5 py-2 text-sm text-[#8b2f27]">退出管理员</button>
+                      </div>
+                    </div>
 
-                <div className="mt-8">{renderAccessManagement()}</div>
+                    <div className="mt-8">{renderAccessManagement()}</div>
+                  </>
+                ) : renderManagementAccessState()}
               </section>
             ) : null}
             {customerView === "profile-details" ? (
@@ -3166,7 +3273,7 @@ export default function Home() {
               <span aria-hidden="true">我</span>
               <small>我的</small>
             </button>
-            {merchantSessionToken && merchant?.role === "super_admin" ? (
+            {customerView === "management" || (merchantSessionToken && merchant?.role === "super_admin") ? (
               <button type="button" onClick={() => void openSystemManagement()} className={customerView === "management" ? "nav-active" : ""}>
                 <span aria-hidden="true">管</span>
                 <small>管理</small>
