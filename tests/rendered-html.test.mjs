@@ -156,6 +156,13 @@ test("超级管理员管理页提供完整账号 CRUD 和权限保护", async ()
 
   assert.match(page, /customerView === "management"/);
   assert.match(page, /type ManagementAccessState = "idle" \| "checking" \| "ready" \| "expired" \| "forbidden" \| "error"/);
+  assert.match(page, /type ManagementView = "accounts" \| "account-editor"/);
+  assert.match(page, /const MANAGEMENT_ROLE_TABS: MerchantRole\[\] = \["super_admin", "admin", "merchant", "customer"\]/);
+  assert.match(page, /role="tablist" aria-label="按权限等级筛选用户"/);
+  assert.match(page, /merchantAccounts\.filter\(\(account\) => account\.role === managementRoleTab\)/);
+  assert.match(page, /function startNewMerchantAccount\(\)[\s\S]*setManagementView\("account-editor"\)/);
+  assert.match(page, /function closeMerchantAccountEditor\(\)[\s\S]*setManagementView\("accounts"\)/);
+  assert.match(page, /保存后自动返回对应角色的账号列表/);
   assert.match(page, /账号、角色与会话/);
   assert.match(page, /管理员登录已过期/);
   assert.match(page, /成功后会自动回到本页/);
